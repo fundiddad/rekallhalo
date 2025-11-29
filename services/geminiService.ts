@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { StoryGenre, Character, StorySegment, ImageSize, SupportingCharacter, StoryMood, generateUUID, WorldSettings, Skill, AvatarStyle, MemoryState, ImageModel, ShotSize, ScheduledEvent, PlotChapter } from '../types';
 import { WULIN_CONTEXT, WESTERN_FANTASY_CONTEXT, NARRATIVE_STRUCTURES, NARRATIVE_TECHNIQUES } from '../constants';
@@ -252,12 +251,18 @@ export const advanceStory = async (
     scheduledEvents: ScheduledEvent[] = [],
     narrativeMode?: string,
     narrativeTechnique?: string,
-    plotBlueprint: PlotChapter[] = []
+    plotBlueprint: PlotChapter[] = [],
+    regenerationMode: 'full' | 'text' | 'choices' = 'full'
 ): Promise<StorySegment> => {
     
     // --- OPTIMIZATION 1: DYNAMIC HISTORY SIZING ---
     const lastTurnIndex = history.length - 1;
     const historyWindow = [];
+    
+    // For regeneration 'choices', we typically want the CURRENT text to be the context
+    // For 'full' or 'text', the current text is what we are replacing, so we look at previous.
+    // However, `useGameEngine` logic strips the current segment for 'full'/'text' before calling this.
+    // So history[lastTurnIndex] is always the "previous validated turn".
     
     if (lastTurnIndex > 0) {
         const prev = history[lastTurnIndex - 1];
@@ -265,6 +270,8 @@ export const advanceStory = async (
     }
     if (lastTurnIndex >= 0) {
         const curr = history[lastTurnIndex];
+        // If we are regenerating choices for the *current* text (which is technically history[lastTurnIndex] in this call context if passed correctly),
+        // we might handle it via special prompts.
         historyWindow.push(`Turn ${lastTurnIndex} (IMMEDIATE PAST): ${curr.text} \nUser Choice/Input: ${curr.causedBy}`);
     }
 
@@ -349,9 +356,33 @@ export const advanceStory = async (
         }
     }
 
+    // --- REGENERATION MODE INSTRUCTIONS ---
+    let regenInstruction = "";
+    if (regenerationMode === 'choices') {
+        regenInstruction = `
+        [TASK: REGENERATE CHOICES ONLY]
+        The user is happy with the story context but dislikes the available options.
+        1. Keep the 'text' field roughly the same as the context (or a concise summary of it), or output an empty string if not changing.
+        2. Focus entirely on generating 4 NEW, DISTINCT, and CREATIVE 'choices' that fit the current situation.
+        3. Ensure choices align with the Plot Blueprint and any Pending Events if possible.
+        `;
+    } else if (regenerationMode === 'text') {
+        regenInstruction = `
+        [TASK: REWRITE STORY TEXT]
+        The user wants the narrative description rewritten (better style, more detail, or different tone).
+        1. Keep the plot outcome effectively the same as before, but change the prose/wording.
+        2. Generate choices that fit this new text version.
+        `;
+    } else {
+        regenInstruction = `
+        [TASK: CONTINUE STORY]
+        Generate the next segment of the story based on the user's choice.
+        `;
+    }
+
     const prompt = `
       Role: Interactive fiction engine.
-      Task: Continue the story.
+      Task: ${regenerationMode === 'choices' ? 'Generate new choices' : 'Continue the story'}.
       Language: Simplified Chinese.
 
       [SETTING]
@@ -383,6 +414,7 @@ export const advanceStory = async (
       ${narrativeInstruction}
       ${blueprintInstruction}
       ${eventsInstruction}
+      ${regenInstruction}
 
       [RULES]
       ${customPrompt || ""}
@@ -390,10 +422,15 @@ export const advanceStory = async (
       2. If 'Recent Story' memory is getting too long (>500 words), SUMMARIZE older events into it and compress.
       3. VISUAL PROMPT: Keep it concise. Scenery only. No humans.
 
-      [OUTPUT SCHEMA]
+      [OUTPUT REQUIREMENTS]
+      1. triggeredEventId: ID of event completed this turn (or null).
+      2. memoryUpdate: Update all fields. CRITICAL: Compress 'storyMemory' if needed.
+      3. **CHOICES GENERATION (CRITICAL)**:
+         - Provide 2-4 distinct options.
+         - **PLOT ALIGNMENT**: At least one choice MUST specifically attempt to advance the '[CURRENT CHAPTER]' objectives or trigger a '[PENDING GLOBAL EVENT]'.
+         - Do not make choices generic. Make them specific to the current context and plot goals.
+
       Return valid JSON matching the schema.
-      - triggeredEventId: ID of event completed this turn (or null).
-      - memoryUpdate: Update all fields. CRITICAL: Compress 'storyMemory' if needed.
     `;
 
     return withModelFallback(modelName, TEXT_MODEL_FALLBACKS, async (model) => {

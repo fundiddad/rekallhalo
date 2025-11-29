@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { SmoothBackground, getSmartBackground, getRandomBackground } from '../SmoothBackground';
 import { TypingText } from '../TypingText';
@@ -8,65 +7,22 @@ import { VisualEffectsLayer } from '../VisualEffectsLayer';
 import { GenreAvatar } from '../GenreAvatar';
 import { AddEventModal } from '../modals/GameplayModals';
 
-interface GameScreenProps {
-    context: GameContext;
-    bgImage: string;
-    backgroundStyle: string;
-    battleAnim: string | null;
-    generatingImage: boolean;
-    isLoading: boolean;
-    isUiVisible: boolean;
-    setIsUiVisible: (visible: boolean | ((prev: boolean) => boolean)) => void;
-    isMuted: boolean;
-    setIsMuted: (muted: boolean) => void;
-    volume: number;
-    setVolume: (vol: number) => void;
-    textTypingComplete: boolean;
-    setTextTypingComplete: (complete: boolean) => void;
-    typingSpeed: number;
-    setTypingSpeed: (speed: number) => void;
-    inputMode: InputMode;
-    
-    // Actions
-    handleBackToHome: () => void;
-    handleManualSave: () => void;
-    handleChoice: (choice: string, fromIndex?: number) => void;
-    handleUseSkill: (skill: any) => void;
-    handleSummarizeMemory: () => void;
-    handleRegenerate: () => void;
-    handleSwitchVersion: (segmentId: string, direction: 'prev' | 'next') => void;
-    handleGlobalReplace: (findText: string, replaceText: string) => number;
-    handleAddScheduledEvent?: (event: Omit<ScheduledEvent, 'id' | 'createdTurn' | 'status'>) => void; 
-    handleUpdateScheduledEvent?: (event: ScheduledEvent) => void; 
-    handleDeleteScheduledEvent?: (id: string) => void; 
-    isSummarizing: boolean;
-    
-    // Modals Triggers
-    onOpenImageModal: () => void;
-    onOpenCharacterModal: (characterId?: string) => void;
-    onOpenHistoryModal: () => void;
-    onOpenSkillModal: () => void;
-    onOpenRegenConfirm: () => void;
-    onOpenSettings: () => void;
-    
-    shouldBlurBackground: boolean;
-    playClickSound: () => void;
+// Copied existing helper functions for context
+const escapeRegExp = (string: string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-    // Visual Effects
-    visualEffect: VisualEffectType;
-    setVisualEffect: (type: VisualEffectType) => void;
-    
-    autoSaveState: 'saving' | 'complete' | null;
-    showStoryPanelBackground: boolean;
-    storyFontSize: number;
-    storyFontFamily: string;
-    
-    // Favorite BG
-    isCurrentBgFavorited: boolean;
-    onToggleFavorite: () => void;
-}
+const detectShotType = (visualPrompt?: string): ShotSize | null => {
+    if (!visualPrompt) return null;
+    const lower = visualPrompt.toLowerCase();
+    if (lower.includes('extreme close-up') || lower.includes('extreme close up')) return ShotSize.EXTREME_CLOSE_UP;
+    if (lower.includes('close-up') || lower.includes('close up')) return ShotSize.CLOSE_UP;
+    if (lower.includes('extreme long shot') || lower.includes('panoramic')) return ShotSize.EXTREME_LONG_SHOT;
+    if (lower.includes('long shot') || lower.includes('wide shot') || lower.includes('full shot')) return ShotSize.LONG_SHOT;
+    if (lower.includes('medium shot') || lower.includes('waist up')) return ShotSize.MEDIUM_SHOT;
+    if (lower.includes('dynamic perspective') || lower.includes('wide angle') || lower.includes('fish-eye')) return ShotSize.DYNAMIC_PERSPECTIVE;
+    return null;
+};
 
-// Entity Tooltip Overlay Component
+// ... EntityTooltipRenderer ...
 const EntityTooltipRenderer = ({ info, rect }: { info: { type: 'protagonist' | 'npc' | 'location', data: any }, rect: DOMRect }) => {
     if (!rect) return null;
 
@@ -127,17 +83,15 @@ const EntityTooltipRenderer = ({ info, rect }: { info: { type: 'protagonist' | '
         );
     }
 
-    // Outer Position Style - Purely for positioning the anchor point
     const positionStyle: React.CSSProperties = {
         position: 'fixed',
-        top: `${rect.top - 12}px`, // Slight offset up
+        top: `${rect.top - 12}px`,
         left: `${rect.left + rect.width / 2}px`,
-        transform: 'translate(-50%, -100%)', // Move up by its own height to sit ON TOP of the text
+        transform: 'translate(-50%, -100%)',
         zIndex: 9999,
-        pointerEvents: 'none' // Allows mouse events to pass through, fixing sticky hover issues
+        pointerEvents: 'none'
     };
 
-    // Inner Box Style - Handles sizing
     const contentStyle: React.CSSProperties = {
         maxWidth: '220px',
         minWidth: '160px'
@@ -145,34 +99,14 @@ const EntityTooltipRenderer = ({ info, rect }: { info: { type: 'protagonist' | '
 
     return (
         <div style={positionStyle}>
-            <div 
-                className={`p-3 rounded-lg border shadow-2xl backdrop-blur-md animate-fade-in-up relative ${bgClass}`}
-                style={contentStyle}
-            >
+            <div className={`p-3 rounded-lg border shadow-2xl backdrop-blur-md animate-fade-in-up relative ${bgClass}`} style={contentStyle}>
                 {tooltipContent}
-                {/* Down Arrow - Anchored to bottom of tooltip */}
                 <div className={`absolute bottom-[-6px] left-1/2 -translate-x-1/2 w-3 h-3 rotate-45 border-b border-r ${bgClass} ${arrowColor} border-t-0 border-l-0`}></div>
             </div>
         </div>
     );
 };
 
-// Regex Helper
-const escapeRegExp = (string: string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-const detectShotType = (visualPrompt?: string): ShotSize | null => {
-    if (!visualPrompt) return null;
-    const lower = visualPrompt.toLowerCase();
-    if (lower.includes('extreme close-up') || lower.includes('extreme close up')) return ShotSize.EXTREME_CLOSE_UP;
-    if (lower.includes('close-up') || lower.includes('close up')) return ShotSize.CLOSE_UP;
-    if (lower.includes('extreme long shot') || lower.includes('panoramic')) return ShotSize.EXTREME_LONG_SHOT;
-    if (lower.includes('long shot') || lower.includes('wide shot') || lower.includes('full shot')) return ShotSize.LONG_SHOT;
-    if (lower.includes('medium shot') || lower.includes('waist up')) return ShotSize.MEDIUM_SHOT;
-    if (lower.includes('dynamic perspective') || lower.includes('wide angle') || lower.includes('fish-eye')) return ShotSize.DYNAMIC_PERSPECTIVE;
-    return null;
-};
-
-// ... MemoryTextRenderer and InventoryRenderer remain same ...
 const MemoryTextRenderer = ({ text, context }: { text: string, context: GameContext }) => {
     if (!text) return <span>无数据</span>;
     const entityKeywords = [
@@ -271,7 +205,6 @@ const getNamePlateStyles = (genre: StoryGenre, isProtagonist: boolean) => {
                 };
         }
     } else {
-        // Generic NPC or Supporting
         return {
             container: "bg-stone-900/90 border border-stone-600/50 shadow-lg backdrop-blur-md px-4 py-2 rounded-lg min-w-[100px]",
             name: "text-stone-200 font-sans",
@@ -279,6 +212,64 @@ const getNamePlateStyles = (genre: StoryGenre, isProtagonist: boolean) => {
         };
     }
 };
+
+interface GameScreenProps {
+    context: GameContext;
+    bgImage: string;
+    backgroundStyle: string;
+    battleAnim: string | null;
+    generatingImage: boolean;
+    isLoading: boolean;
+    isUiVisible: boolean;
+    setIsUiVisible: (visible: boolean | ((prev: boolean) => boolean)) => void;
+    isMuted: boolean;
+    setIsMuted: (muted: boolean) => void;
+    volume: number;
+    setVolume: (vol: number) => void;
+    textTypingComplete: boolean;
+    setTextTypingComplete: (complete: boolean) => void;
+    typingSpeed: number;
+    setTypingSpeed: (speed: number) => void;
+    inputMode: InputMode;
+    
+    // Actions
+    handleBackToHome: () => void;
+    handleManualSave: () => void;
+    handleChoice: (choice: string, fromIndex?: number) => void;
+    handleUseSkill: (skill: any) => void;
+    handleSummarizeMemory: () => void;
+    handleRegenerate: (mode: 'full' | 'text' | 'choices') => void; // Updated Prop Type
+    handleSwitchVersion: (segmentId: string, direction: 'prev' | 'next') => void;
+    handleGlobalReplace: (findText: string, replaceText: string) => number;
+    handleAddScheduledEvent?: (event: Omit<ScheduledEvent, 'id' | 'createdTurn' | 'status'>) => void; 
+    handleUpdateScheduledEvent?: (event: ScheduledEvent) => void; 
+    handleDeleteScheduledEvent?: (id: string) => void; 
+    isSummarizing: boolean;
+    
+    // Modals Triggers
+    onOpenImageModal: () => void;
+    onOpenCharacterModal: (characterId?: string) => void;
+    onOpenHistoryModal: () => void;
+    onOpenSkillModal: () => void;
+    onOpenRegenConfirm: () => void;
+    onOpenSettings: () => void;
+    
+    shouldBlurBackground: boolean;
+    playClickSound: () => void;
+
+    // Visual Effects
+    visualEffect: VisualEffectType;
+    setVisualEffect: (type: VisualEffectType) => void;
+    
+    autoSaveState: 'saving' | 'complete' | null;
+    showStoryPanelBackground: boolean;
+    storyFontSize: number;
+    storyFontFamily: string;
+    
+    // Favorite BG
+    isCurrentBgFavorited: boolean;
+    onToggleFavorite: () => void;
+}
 
 export const GameScreen: React.FC<GameScreenProps> = (props) => {
     const { 
@@ -299,26 +290,19 @@ export const GameScreen: React.FC<GameScreenProps> = (props) => {
     const [showInventory, setShowInventory] = useState(false);
     const [showGodMode, setShowGodMode] = useState(false);
     const [showScheduler, setShowScheduler] = useState(false); 
+    const [showRegenMenu, setShowRegenMenu] = useState(false); // ADDED
     const [showAddEventModal, setShowAddEventModal] = useState(false);
     const [eventToEdit, setEventToEdit] = useState<ScheduledEvent | null>(null);
     const [suggestions, setSuggestions] = useState<SuggestionItem[]>([]);
-    
-    // Heart Animation State
     const [heartBeat, setHeartBeat] = useState(false);
-    
-    // Entity Tooltip State
     const [tooltipData, setTooltipData] = useState<{ info: any, rect: DOMRect } | null>(null);
-    
-    // God Mode inputs
     const [findText, setFindText] = useState('');
     const [replaceText, setReplaceText] = useState('');
     const [replaceError, setReplaceError] = useState<string | null>(null);
-
     const [inputPage, setInputPage] = useState<0 | 1>(0);
     const chatEndRef = useRef<HTMLDivElement>(null);
     const sideToolsRef = useRef<HTMLDivElement>(null);
 
-    // Keyboard & Scroll Effects
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Tab') { e.preventDefault(); setIsUiVisible(prev => !prev); }
@@ -330,7 +314,7 @@ export const GameScreen: React.FC<GameScreenProps> = (props) => {
     useEffect(() => {
         setViewingIndex(context.history.length - 1);
         setInputText(''); setSuggestions([]); setInputPage(0);
-        setTooltipData(null); // Clear tooltip on new turn
+        setTooltipData(null); 
     }, [context.history.length]);
 
     useEffect(() => { if (inputMode === 'text' && chatEndRef.current) chatEndRef.current.scrollIntoView({ behavior: "smooth" }); }, [context.history.length, textTypingComplete, inputMode, context.history[context.history.length-1]?.currentVersionIndex]);
@@ -362,15 +346,12 @@ export const GameScreen: React.FC<GameScreenProps> = (props) => {
         const currentText = inputText;
         const triggers = ["技能", "招式", "/", "道具", "物品", "背包", "#", "地点", "前往", "@"];
         let baseText = currentText;
-        
-        // Find which trigger was used and remove it from the end of the string
         for (const trigger of triggers) {
             if (currentText.endsWith(trigger)) {
                 baseText = currentText.slice(0, -trigger.length);
                 break;
             }
         }
-        
         setInputText(baseText + val);
         setSuggestions([]);
     };
@@ -382,58 +363,37 @@ export const GameScreen: React.FC<GameScreenProps> = (props) => {
                 if (showMemory) setShowMemory(false);
                 if (showInventory) setShowInventory(false);
                 if (showScheduler) setShowScheduler(false);
+                if (showRegenMenu) setShowRegenMenu(false);
             }
-            // Clear tooltip on click anywhere
             setTooltipData(null);
         };
-        if (showGodMode || showMemory || showInventory || showScheduler || true) document.addEventListener('mousedown', handleClickOutside);
+        if (showGodMode || showMemory || showInventory || showScheduler || showRegenMenu || true) document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, [showGodMode, showMemory, showInventory, showScheduler]);
+    }, [showGodMode, showMemory, showInventory, showScheduler, showRegenMenu]);
 
     const handleConfirmEvent = (eventData: any) => {
-        if (eventToEdit && handleUpdateScheduledEvent) {
-            handleUpdateScheduledEvent(eventData);
-        } else if (handleAddScheduledEvent) {
-            handleAddScheduledEvent(eventData);
-        }
+        if (eventToEdit && handleUpdateScheduledEvent) { handleUpdateScheduledEvent(eventData); } 
+        else if (handleAddScheduledEvent) { handleAddScheduledEvent(eventData); }
         playClickSound();
     };
 
-    const handleEditEvent = (event: ScheduledEvent) => {
-        setEventToEdit(event);
-        setShowAddEventModal(true);
-        setShowScheduler(false); 
-    };
-
+    const handleEditEvent = (event: ScheduledEvent) => { setEventToEdit(event); setShowAddEventModal(true); setShowScheduler(false); };
     const handleRemoveEvent = (id: string, e: React.MouseEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (handleDeleteScheduledEvent) {
-            if (window.confirm("确定要删除这个预设伏笔吗？")) {
-                handleDeleteScheduledEvent(id);
-            }
-        }
+        e.preventDefault(); e.stopPropagation();
+        if (handleDeleteScheduledEvent) { if (window.confirm("确定要删除这个预设伏笔吗？")) { handleDeleteScheduledEvent(id); } }
     };
 
-    // Use useCallback to ensure stability for child components
     const handleHoverEntity = useCallback((info: any, rect: DOMRect | null) => {
-        if (info && rect) {
-            setTooltipData({ info, rect });
-        } else {
-            setTooltipData(null);
-        }
+        if (info && rect) { setTooltipData({ info, rect }); } 
+        else { setTooltipData(null); }
     }, []);
 
     const triggerHeart = () => {
-        setHeartBeat(true);
-        playClickSound();
-        if (onToggleFavorite) {
-            onToggleFavorite();
-        }
+        setHeartBeat(true); playClickSound();
+        if (onToggleFavorite) { onToggleFavorite(); }
         setTimeout(() => setHeartBeat(false), 500);
     };
 
-    // Render Setup
     const segment = context.history[viewingIndex] || context.currentSegment;
     const isLatest = viewingIndex === context.history.length - 1;
     const currentShotType = isLatest ? detectShotType(segment?.visualPrompt) : null;
@@ -480,96 +440,36 @@ export const GameScreen: React.FC<GameScreenProps> = (props) => {
     const sideToolsContent = (
         <div ref={sideToolsRef} className="flex flex-col gap-3 pointer-events-auto items-end">
             <div className="relative group/tool flex items-center">
-                {!showGodMode && !showMemory && !showInventory && !showScheduler && <Tooltip text="剧情回顾：查看完整故事历史" />}
-                <button onClick={(e) => { e.stopPropagation(); playClickSound(); onOpenHistoryModal(); setShowGodMode(false); setShowMemory(false); setShowInventory(false); setShowScheduler(false); }} className={`shadow-lg transition-all duration-300 rounded-full w-12 h-12 flex items-center justify-center border-2 bg-stone-800 border-stone-600 text-stone-200 hover:scale-110`} title="剧情回顾">
+                {!showGodMode && !showMemory && !showInventory && !showScheduler && !showRegenMenu && <Tooltip text="剧情回顾：查看完整故事历史" />}
+                <button onClick={(e) => { e.stopPropagation(); playClickSound(); onOpenHistoryModal(); setShowGodMode(false); setShowMemory(false); setShowInventory(false); setShowScheduler(false); setShowRegenMenu(false); }} className={`shadow-lg transition-all duration-300 rounded-full w-12 h-12 flex items-center justify-center border-2 bg-stone-800 border-stone-600 text-stone-200 hover:scale-110`} title="剧情回顾">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" /></svg>
                 </button>
             </div>
-
-            {/* Scheduler Button & Panel */}
+            
+            {/* Scheduler */}
             <div className="relative group/tool flex items-center">
                 {!showScheduler && <Tooltip text="伏笔预设：安排未来剧情事件" />}
-                <div 
-                    className={`absolute top-0 right-full mr-4 bg-stone-100/95 backdrop-blur border border-stone-300 shadow-2xl flex flex-col transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] origin-top-right rounded-xl overflow-hidden z-[150] ${showScheduler ? 'w-[280px] opacity-100 scale-100 visible' : 'w-[280px] opacity-0 scale-90 invisible pointer-events-none'}`}
-                    onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} 
-                >
+                <div className={`absolute top-0 right-full mr-4 bg-stone-100/95 backdrop-blur border border-stone-300 shadow-2xl flex flex-col transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] origin-top-right rounded-xl overflow-hidden z-[150] ${showScheduler ? 'w-[280px] opacity-100 scale-100 visible' : 'w-[280px] opacity-0 scale-90 invisible pointer-events-none'}`} onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
                     <div className="bg-stone-200/80 p-3 border-b border-stone-300 flex justify-between items-center relative overflow-hidden shrink-0">
-                        <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse shadow-[0_0_5px_rgba(59,130,246,0.5)]"></div>
-                            <h4 className="text-sm font-bold text-stone-700 font-mono tracking-widest uppercase">预设事件 / 剧本</h4>
-                        </div>
-                        <button 
-                            onClick={() => { setEventToEdit(null); setShowAddEventModal(true); setShowScheduler(false); }}
-                            className="bg-blue-100 hover:bg-blue-200 text-blue-600 rounded-full w-5 h-5 flex items-center justify-center font-bold text-xs transition-colors shadow-sm"
-                            title="添加新预设"
-                        >
-                            +
-                        </button>
+                        <div className="flex items-center gap-2"><div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse shadow-[0_0_5px_rgba(59,130,246,0.5)]"></div><h4 className="text-sm font-bold text-stone-700 font-mono tracking-widest uppercase">预设事件 / 剧本</h4></div>
+                        <button onClick={() => { setEventToEdit(null); setShowAddEventModal(true); setShowScheduler(false); }} className="bg-blue-100 hover:bg-blue-200 text-blue-600 rounded-full w-5 h-5 flex items-center justify-center font-bold text-xs transition-colors shadow-sm" title="添加新预设">+</button>
                     </div>
-                    {/* Fixed max-height and hidden scrollbar logic */}
                     <div className="p-3 space-y-4 max-h-[300px] overflow-y-auto custom-scrollbar [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
-                        {/* List - Pending */}
                         <div className="space-y-2">
                             {context.scheduledEvents?.filter(e => e.status === 'pending').map(e => (
-                                <div 
-                                    key={e.id} 
-                                    className="bg-yellow-50 border-l-4 border-yellow-400 p-2 rounded shadow-sm relative group/item hover:bg-yellow-100 transition-colors cursor-pointer select-none"
-                                    onClick={() => handleEditEvent(e)}
-                                    title="点击编辑"
-                                >
-                                    <div className="text-[10px] text-gray-500 flex justify-between font-bold">
-                                        <span>{e.type} @ {e.location || '未知'}</span>
-                                        <div className="flex items-center gap-1">
-                                            <span className="bg-yellow-100 text-yellow-700 px-1 rounded">待触发</span>
-                                            <button 
-                                                onClick={(evt) => handleRemoveEvent(e.id, evt)}
-                                                className="w-6 h-6 flex items-center justify-center text-red-400 hover:text-red-600 hover:bg-red-100 rounded-full transition-colors z-20 pointer-events-auto"
-                                                title="删除"
-                                            >
-                                                ✕
-                                            </button>
-                                        </div>
-                                    </div>
+                                <div key={e.id} className="bg-yellow-50 border-l-4 border-yellow-400 p-2 rounded shadow-sm relative group/item hover:bg-yellow-100 transition-colors cursor-pointer select-none" onClick={() => handleEditEvent(e)} title="点击编辑">
+                                    <div className="text-[10px] text-gray-500 flex justify-between font-bold"><span>{e.type} @ {e.location || '未知'}</span><div className="flex items-center gap-1"><span className="bg-yellow-100 text-yellow-700 px-1 rounded">待触发</span><button onClick={(evt) => handleRemoveEvent(e.id, evt)} className="w-6 h-6 flex items-center justify-center text-red-400 hover:text-red-600 hover:bg-red-100 rounded-full transition-colors z-20 pointer-events-auto" title="删除">✕</button></div></div>
                                     <div className="text-xs text-gray-800 font-medium mt-1 leading-tight">{e.description}</div>
                                 </div>
                             ))}
                             {(!context.scheduledEvents || context.scheduledEvents.filter(e => e.status === 'pending').length === 0) && <div className="text-[10px] text-gray-400 text-center italic py-2">暂无待触发的伏笔</div>}
                         </div>
-                        
-                        {/* List - Completed */}
-                        {context.scheduledEvents && context.scheduledEvents.filter(e => e.status === 'completed').length > 0 && (
-                            <div className="space-y-2 pt-2 border-t border-stone-200">
-                                <h5 className="text-[10px] font-bold text-gray-400 uppercase">已回收伏笔</h5>
-                                {context.scheduledEvents.filter(e => e.status === 'completed').map(e => (
-                                    <div key={e.id} className="bg-green-50 border-l-4 border-green-500 p-2 rounded shadow-sm opacity-70 relative group/item">
-                                        <div className="text-[10px] text-gray-500 flex justify-between">
-                                            <span>{e.type}</span>
-                                            <div className="flex items-center gap-1">
-                                                <span className="text-green-600">已于第 {e.triggeredTurn} 幕触发</span>
-                                                <button 
-                                                    onClick={(evt) => handleRemoveEvent(e.id, evt)}
-                                                    className="w-6 h-6 flex items-center justify-center text-red-400 hover:text-red-600 hover:bg-red-100 rounded-full transition-colors z-20 pointer-events-auto"
-                                                    title="删除"
-                                                >
-                                                    ✕
-                                                </button>
-                                            </div>
-                                        </div>
-                                        <div className="text-xs text-gray-600 mt-1 line-through">{e.description}</div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
                     </div>
                 </div>
-                <button onClick={(e) => { e.stopPropagation(); playClickSound(); setShowScheduler(!showScheduler); setShowGodMode(false); setShowMemory(false); setShowInventory(false); }} className={`shadow-lg transition-all duration-300 rounded-full w-12 h-12 flex items-center justify-center border-2 ${showScheduler ? 'bg-stone-100 border-stone-300 text-stone-600' : 'bg-stone-800 border-stone-600 text-stone-200 hover:scale-110'}`} title="预设事件">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5m-9-6h.008v.008H12v-.008zM12 15h.008v.008H12V15zm0 2.25h.008v.008H12v-.008zM9.75 15h.008v.008H9.75V15zm0 2.25h.008v.008H9.75v-.008zM7.5 15h.008v.008H7.5V15zm0 2.25h.008v.008H7.5v-.008zm6.75-4.5h.008v.008h-.008v-.008zm0 2.25h.008v.008h-.008V15zm0 2.25h.008v.008h-.008v-.008zm2.25-4.5h.008v.008H16.5v-.008zm0 2.25h.008v.008H16.5V15z" />
-                    </svg>
-                </button>
+                <button onClick={(e) => { e.stopPropagation(); playClickSound(); setShowScheduler(!showScheduler); setShowGodMode(false); setShowMemory(false); setShowInventory(false); setShowRegenMenu(false); }} className={`shadow-lg transition-all duration-300 rounded-full w-12 h-12 flex items-center justify-center border-2 ${showScheduler ? 'bg-stone-100 border-stone-300 text-stone-600' : 'bg-stone-800 border-stone-600 text-stone-200 hover:scale-110'}`} title="预设事件"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5m-9-6h.008v.008H12v-.008zM12 15h.008v.008H12V15zm0 2.25h.008v.008H12v-.008zM9.75 15h.008v.008H9.75V15zm0 2.25h.008v.008H9.75v-.008zM7.5 15h.008v.008H7.5V15zm0 2.25h.008v.008H7.5v-.008zm6.75-4.5h.008v.008h-.008v-.008zm0 2.25h.008v.008h-.008V15zm0 2.25h.008v.008h-.008v-.008zm2.25-4.5h.008v.008H16.5v-.008zm0 2.25h.008v.008H16.5V15z" /></svg></button>
             </div>
 
-            {/* Other side tools... */}
+            {/* God Mode */}
             <div className="relative group/tool flex items-center">
                  {!showGodMode && <Tooltip text="全局查找替换：修正记忆与近期剧情中的错误内容" />}
                  <div className={`absolute bottom-0 right-full mr-4 mb-0 bg-stone-100/95 backdrop-blur border border-stone-300 shadow-2xl flex flex-col transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] origin-bottom-right rounded-xl overflow-hidden z-[90] ${showGodMode ? 'w-[280px] opacity-100 scale-100 visible' : 'w-[280px] opacity-0 scale-90 invisible pointer-events-none'}`} onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} >
@@ -578,15 +478,15 @@ export const GameScreen: React.FC<GameScreenProps> = (props) => {
                             <div className="space-y-1"><label className="text-[10px] text-gray-500 font-bold block">查找内容</label><input value={findText} onChange={(e) => setFindText(e.target.value)} placeholder="输入错误文本..." className="w-full bg-white border border-stone-300 rounded px-2 py-1.5 text-xs text-stone-800 outline-none focus:border-stone-500"/></div>
                             <div className="space-y-1"><label className="text-[10px] text-gray-500 font-bold block">替换为</label><input value={replaceText} onChange={(e) => setReplaceText(e.target.value)} placeholder="输入正确文本..." className="w-full bg-white border border-stone-300 rounded px-2 py-1.5 text-xs text-stone-800 outline-none focus:border-stone-500"/></div>
                             {replaceError && <div className="text-[10px] text-red-500 font-bold bg-red-50 p-2 rounded border border-red-100">{replaceError}</div>}
-                            <p className="text-[9px] text-gray-400 leading-tight">* 仅修正记忆区与最近5段剧情。<br/>* 主角/配角档案及技能不可修改。</p>
                             <button onClick={handleGodModeReplace} disabled={!findText.trim() || !replaceText.trim()} className="w-full bg-stone-800 hover:bg-stone-700 text-stone-100 text-xs font-bold py-2 rounded shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors">执行修正</button>
                         </div>
                 </div>
-                <button onClick={(e) => { e.stopPropagation(); playClickSound(); setShowGodMode(!showGodMode); setShowMemory(false); setShowInventory(false); setShowScheduler(false); }} className={`shadow-lg transition-all duration-300 rounded-full w-12 h-12 flex items-center justify-center border-2 ${showGodMode ? 'bg-stone-100 border-stone-300 text-stone-600' : 'bg-stone-800 border-stone-600 text-stone-200 hover:scale-110'}`} title="全局查找替换">
+                <button onClick={(e) => { e.stopPropagation(); playClickSound(); setShowGodMode(!showGodMode); setShowMemory(false); setShowInventory(false); setShowScheduler(false); setShowRegenMenu(false); }} className={`shadow-lg transition-all duration-300 rounded-full w-12 h-12 flex items-center justify-center border-2 ${showGodMode ? 'bg-stone-100 border-stone-300 text-stone-600' : 'bg-stone-800 border-stone-600 text-stone-200 hover:scale-110'}`} title="全局查找替换">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M21.731 2.269a2.625 2.625 0 00-3.712 0l-1.157 1.157 3.712 3.712 1.157-1.157a2.625 2.625 0 000-3.712zM19.513 8.199l-3.712-3.712-12.15 12.15a5.25 5.25 0 00-1.32 2.214l-.8 2.685a.75.75 0 00.933.933l2.685-.8a5.25 5.25 0 002.214-1.32L19.513 8.2z" /></svg>
                 </button>
             </div>
 
+            {/* Memory */}
             <div className="relative group/tool flex items-center">
                 {!showMemory && <Tooltip text="记忆核心：查看当前故事的各类记忆状态" />}
                 <div className={`absolute bottom-0 right-full mr-4 mb-0 bg-stone-100/95 backdrop-blur border border-stone-300 shadow-2xl flex flex-col transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] origin-bottom-right rounded-xl overflow-hidden z-[90] ${showMemory ? 'w-[320px] opacity-100 scale-100 visible' : 'w-[320px] opacity-0 scale-90 invisible pointer-events-none'}`} onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
@@ -604,11 +504,12 @@ export const GameScreen: React.FC<GameScreenProps> = (props) => {
                         </div>
                     </div>
                 </div>
-                <button onClick={(e) => { e.stopPropagation(); playClickSound(); setShowMemory(!showMemory); setShowGodMode(false); setShowInventory(false); setShowScheduler(false); }} className={`shadow-lg transition-all duration-300 rounded-full w-12 h-12 flex items-center justify-center border-2 ${showMemory ? 'bg-stone-100 border-stone-300 text-stone-600' : 'bg-stone-800 border-stone-600 text-stone-200 hover:scale-110'}`} title="记忆区">
+                <button onClick={(e) => { e.stopPropagation(); playClickSound(); setShowMemory(!showMemory); setShowGodMode(false); setShowInventory(false); setShowScheduler(false); setShowRegenMenu(false); }} className={`shadow-lg transition-all duration-300 rounded-full w-12 h-12 flex items-center justify-center border-2 ${showMemory ? 'bg-stone-100 border-stone-300 text-stone-600' : 'bg-stone-800 border-stone-600 text-stone-200 hover:scale-110'}`} title="记忆区">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M11.25 4.533A9.707 9.707 0 006 3a9.735 9.735 0 00-3.25.555.75.75 0 00-.5.707v14.25a.75.75 0 001 .707A8.237 8.237 0 016 18.75c1.995 0 3.823.707 5.25 1.886V4.533zM12.75 20.636A8.214 8.214 0 0118 18.75c.966 0 1.89.166 2.75.47a.75.75 0 001-.708V4.262a.75.75 0 00-.5-.707A9.735 9.735 0 0018 3a9.707 9.707 0 00-5.25 1.533v16.103z" /></svg>
                 </button>
             </div>
 
+            {/* Inventory */}
             <div className="relative group/tool flex items-center">
                 {!showInventory && <Tooltip text="物品清单：查看角色持有的道具与伏笔" />}
                 <div className={`absolute bottom-0 right-full mr-4 mb-0 bg-stone-100/95 backdrop-blur border border-stone-300 shadow-2xl flex flex-col transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] origin-bottom-right rounded-xl overflow-hidden z-[90] ${showInventory ? 'w-[320px] opacity-100 scale-100 visible' : 'w-[320px] opacity-0 scale-90 invisible pointer-events-none'}`} onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
@@ -623,33 +524,61 @@ export const GameScreen: React.FC<GameScreenProps> = (props) => {
                     </div>
                 </div>
             </div>
-            <button onClick={(e) => { e.stopPropagation(); playClickSound(); setShowInventory(!showInventory); setShowMemory(false); setShowGodMode(false); setShowScheduler(false); }} className={`shadow-lg transition-all duration-300 rounded-full w-12 h-12 flex items-center justify-center border-2 ${showInventory ? 'bg-stone-100 border-stone-300 text-stone-600' : 'bg-stone-800 border-stone-600 text-stone-200 hover:scale-110'}`} title="背包 / 物品">
+            <button onClick={(e) => { e.stopPropagation(); playClickSound(); setShowInventory(!showInventory); setShowMemory(false); setShowGodMode(false); setShowScheduler(false); setShowRegenMenu(false); }} className={`shadow-lg transition-all duration-300 rounded-full w-12 h-12 flex items-center justify-center border-2 ${showInventory ? 'bg-stone-100 border-stone-300 text-stone-600' : 'bg-stone-800 border-stone-600 text-stone-200 hover:scale-110'}`} title="背包 / 物品">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path fillRule="evenodd" d="M7.5 6v.75H5.513c-.96 0-1.764.724-1.865 1.679l-1.263 12A1.875 1.875 0 004.25 22.5h15.5a1.875 1.875 0 001.865-2.071l-1.263-12a1.875 1.875 0 00-1.865-1.679H16.5V6a4.5 4.5 0 10-9 0zM12 3a3 3 0 00-3 3v.75h6V6a3 3 0 00-3-3zm-3 8.25a3 3 0 106 0v-.75a.75.75 0 011.5 0v.75a4.5 4.5 0 11-9 0v-.75a.75.75 0 011.5 0v.75z" clipRule="evenodd" /></svg>
             </button>
         </div>
+
+        {/* Regenerate (NEW) - Below Inventory */}
+        <div className="relative group/tool flex items-center">
+            {!showRegenMenu && <Tooltip text="时光回溯：重新生成当前剧情" />}
+            <div className={`absolute bottom-0 right-full mr-4 mb-0 bg-stone-100/95 backdrop-blur border border-stone-300 shadow-2xl flex flex-col transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] origin-bottom-right rounded-xl overflow-hidden z-[90] ${showRegenMenu ? 'w-[180px] opacity-100 scale-100 visible' : 'w-[180px] opacity-0 scale-90 invisible pointer-events-none'}`} onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+                <div className="bg-stone-200/80 p-3 border-b border-stone-300 flex justify-between items-center relative overflow-hidden shrink-0">
+                    <div className="flex items-center gap-2"><div className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse shadow-[0_0_5px_rgba(99,102,241,0.5)]"></div><h4 className="text-sm font-bold text-stone-700 font-mono tracking-widest uppercase">时光回溯</h4></div>
+                </div>
+                <div className="p-2 space-y-2">
+                     <button onClick={() => { handleRegenerate('full'); setShowRegenMenu(false); }} className="w-full text-center px-3 py-2.5 rounded text-stone-700 hover:bg-indigo-50 hover:text-indigo-700 transition-colors text-xs font-bold border border-transparent hover:border-indigo-200 group/btn">全部重来</button>
+                     <button onClick={() => { handleRegenerate('text'); setShowRegenMenu(false); }} className="w-full text-center px-3 py-2.5 rounded text-stone-700 hover:bg-stone-200 hover:text-stone-700 transition-colors text-xs font-bold border border-transparent hover:border-stone-300 group/btn">仅重写剧情</button>
+                     <button onClick={() => { handleRegenerate('choices'); setShowRegenMenu(false); }} className="w-full text-center px-3 py-2.5 rounded text-stone-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors text-xs font-bold border border-transparent hover:border-emerald-200 group/btn">仅刷新选项</button>
+                </div>
+            </div>
+            <button onClick={(e) => { e.stopPropagation(); playClickSound(); setShowRegenMenu(!showRegenMenu); setShowMemory(false); setShowInventory(false); setShowGodMode(false); setShowScheduler(false); }} className={`shadow-lg transition-all duration-300 rounded-full w-12 h-12 flex items-center justify-center border-2 ${showRegenMenu ? 'bg-stone-100 border-stone-300 text-stone-600' : 'bg-stone-800 border-stone-600 text-stone-200 hover:scale-110'}`} title="时光回溯">
+                <span className={`text-xl font-bold ${showRegenMenu ? 'rotate-180' : ''} transition-transform duration-500`}>↻</span>
+            </button>
         </div>
+    </div>
     );
 
-    // ... (renderChoices, renderTextInput, renderPaginator, getBubbleStyles remain unchanged) ...
     const renderChoices = (isChatMode: boolean) => (
         <div className={`grid grid-cols-1 md:grid-cols-2 gap-2 ${isChatMode ? 'w-full max-w-4xl mx-auto' : ''}`}>
             {segment.choices.map((choice, idx) => {
                 const isImportant = choice.startsWith("【命运】");
                 const displayChoice = isImportant ? choice.replace("【命运】", "").trim() : choice;
+
                 return (
-                    <button key={idx} onClick={() => handleChoice(choice, viewingIndex)} className={`group relative px-4 py-2.5 rounded-lg text-left transition-all duration-300 transform hover:scale-[1.02] overflow-hidden border ${isImportant ? styles.choiceImportant : styles.choice}`} style={styles.choiceStyle}>
-                        <div className={`absolute inset-0 bg-gradient-to-r from-white/5 to-transparent w-0 group-hover:w-full transition-all duration-500`} />
-                        <div className="relative z-10 flex gap-2 items-center">
-                            {isImportant && <span className="text-xl animate-pulse">⚡</span>}
-                            <span className={`${styles.choiceNum} ${styles.font} opacity-60 group-hover:opacity-100 transition-opacity italic`}>{idx + 1}.</span>
-                            <span className={`${styles.choiceText} group-hover:text-white text-sm ${isImportant ? 'font-bold tracking-wide' : ''}`}>{displayChoice}</span>
+                    <div key={idx} className="relative group/wrapper">
+                        <div 
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => handleChoice(choice, viewingIndex)} 
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleChoice(choice, viewingIndex); } }}
+                            className={`group relative px-4 py-2.5 rounded-lg text-left transition-all duration-300 transform hover:scale-[1.02] overflow-hidden border cursor-pointer ${isImportant ? styles.choiceImportant : styles.choice}`} 
+                            style={styles.choiceStyle}
+                        >
+                            <div className={`absolute inset-0 bg-gradient-to-r from-white/5 to-transparent w-0 group-hover:w-full transition-all duration-500`} />
+                            <div className="relative z-10 flex gap-2 items-center">
+                                {isImportant && <span className="text-xl animate-pulse">⚡</span>}
+                                <span className={`${styles.choiceNum} ${styles.font} opacity-60 group-hover:opacity-100 transition-opacity italic`}>{idx + 1}.</span>
+                                <span className={`${styles.choiceText} group-hover:text-white text-sm ${isImportant ? 'font-bold tracking-wide' : ''}`}>{displayChoice}</span>
+                            </div>
                         </div>
-                    </button>
+                    </div>
                 );
             })}
         </div>
     );
 
+    // ... (rest of the file including renderTextInput, renderPaginator, getBubbleStyles, and main return logic remains unchanged) ...
     const renderTextInput = (isChatMode: boolean) => (
         <div className={`flex gap-3 items-end w-full max-w-5xl mx-auto`}>
             <div className="relative flex-1">
@@ -667,7 +596,7 @@ export const GameScreen: React.FC<GameScreenProps> = (props) => {
                      </div>
                 </div>
             ) : (
-                <button onClick={() => { if(inputText.trim()) { handleChoice(inputText, viewingIndex); } else { handleRegenerate(); } }} className={`h-[80px] w-[80px] rounded-lg font-bold transition-all border flex items-center justify-center ${styles.button} hover:scale-105 opacity-100 ${styles.container}`} title={inputText.trim() ? "发送" : "重新生成上一条"}>
+                <button onClick={() => { if(inputText.trim()) { handleChoice(inputText, viewingIndex); } else { handleRegenerate('full'); } }} className={`h-[80px] w-[80px] rounded-lg font-bold transition-all border flex items-center justify-center ${styles.button} hover:scale-105 opacity-100 ${styles.container}`} title={inputText.trim() ? "发送" : "重新生成上一条"}>
                      {inputText.trim() ? ( <span className="text-2xl">➤</span> ) : ( <span className="text-2xl">↻</span> )}
                 </button>
             )}
@@ -702,28 +631,10 @@ export const GameScreen: React.FC<GameScreenProps> = (props) => {
       <div className={`relative w-full h-screen overflow-hidden bg-black select-none ${battleAnim || ''}`}>
         <SmoothBackground src={displayImage} shouldBlur={shouldBlurBackground} brightness={isUiVisible ? 0.6 : 1.0} position="center" shotType={currentShotType} />
         <VisualEffectsLayer type={visualEffect} onComplete={() => setVisualEffect('none')} />
-        
-        {/* Entity Tooltip Rendered at Root Level */}
         {tooltipData && <EntityTooltipRenderer info={tooltipData.info} rect={tooltipData.rect} />}
-
-        {/* Render Modals at Root Level */}
-        {showAddEventModal && (
-            <AddEventModal 
-                onClose={() => setShowAddEventModal(false)} 
-                onConfirm={handleConfirmEvent}
-                characters={context.supportingCharacters}
-                protagonistName={context.character.name}
-                initialEvent={eventToEdit}
-            />
-        )}
-
+        {showAddEventModal && ( <AddEventModal onClose={() => setShowAddEventModal(false)} onConfirm={handleConfirmEvent} characters={context.supportingCharacters} protagonistName={context.character.name} initialEvent={eventToEdit} /> )}
         <div className={`absolute inset-0 z-10 cursor-pointer transition-opacity ${isUiVisible ? 'block' : 'hidden'}`} onClick={() => setIsUiVisible(false)} title="点击隐藏界面 (沉浸模式)" />
-        {generatingImage && (
-            <div className="absolute top-20 right-4 z-20 bg-black/40 backdrop-blur px-3 py-1 rounded-full flex items-center gap-2 border border-white/10 animate-pulse">
-                 <span className="w-2 h-2 bg-purple-400 rounded-full"></span>
-                 <span className="text-[10px] text-white/80">具象化重构中...</span>
-            </div>
-        )}
+        {generatingImage && ( <div className="absolute top-20 right-4 z-20 bg-black/40 backdrop-blur px-3 py-1 rounded-full flex items-center gap-2 border border-white/10 animate-pulse"> <span className="w-2 h-2 bg-purple-400 rounded-full"></span> <span className="text-[10px] text-white/80">具象化重构中...</span> </div> )}
         <div className={`absolute top-0 left-0 right-0 p-4 z-30 flex justify-between items-start transition-opacity duration-500 ${isUiVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
              <div className="flex items-center">
                 <button onClick={handleBackToHome} className="p-3 rounded-full bg-black/30 backdrop-blur text-white hover:bg-white/20 border border-white/10 transition-all mr-2 group" title="返回标题">
@@ -740,19 +651,7 @@ export const GameScreen: React.FC<GameScreenProps> = (props) => {
              </div>
              <div className="flex items-center gap-3 justify-end flex-wrap max-w-[50vw]">
                  <button onClick={() => { playClickSound(); onOpenSettings(); }} className="p-2 rounded-full bg-black/30 backdrop-blur text-white hover:bg-white/20 border border-white/10 transition-all hover:rotate-90 duration-500" title="系统设置"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M10.34 15.84c-.688-.06-1.386-.09-2.09-.09H7.5a4.5 4.5 0 110-9h.75c.704 0 1.402-.03 2.09-.09m0 9.18c.253.962.584 1.892.985 2.783.247.55.06 1.21-.463 1.511l-.657.38c-.551.318-1.26.117-1.527-.461a20.845 20.845 0 01-1.44-4.282m3.102.069a18.03 18.03 0 01-.59-4.59c0-1.586.205-3.124.59-4.59m0 9.18a23.848 23.848 0 018.835 2.535M10.34 6.66a23.847 23.847 0 008.835-2.535m0 0A23.74 23.74 0 0018.795 3m.38 1.125a23.91 23.91 0 011.014 5.395m-1.014 8.855c-.118.38-.245.754-.38 1.125m.38-1.125a23.91 23.91 0 001.014-5.395m0-3.46c.495.43.811 1.035.811 1.73 0 .695-.316 1.3-.811 1.73m0-3.46a24.42 24.42 0 010 3.46" /></svg></button>
-                 
-                 {/* Heart / Favorite Button */}
-                 <button 
-                    onClick={triggerHeart} 
-                    className="p-2 rounded-full bg-black/30 backdrop-blur border border-white/10 transition-all hover:bg-white/20 group relative overflow-hidden" 
-                    title="收藏当前场景至画廊"
-                 >
-                     <svg xmlns="http://www.w3.org/2000/svg" fill={isCurrentBgFavorited ? "currentColor" : "none"} viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={`w-5 h-5 group-hover:text-red-500 transition-colors ${heartBeat ? 'text-red-500 animate-ping' : isCurrentBgFavorited ? 'text-red-500' : 'text-white'}`}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
-                     </svg>
-                     {heartBeat && <span className="absolute inset-0 rounded-full bg-red-500/30 animate-ping"></span>}
-                 </button>
-
+                 <button onClick={triggerHeart} className="p-2 rounded-full bg-black/30 backdrop-blur border border-white/10 transition-all hover:bg-white/20 group relative overflow-hidden" title="收藏当前场景至画廊"> <svg xmlns="http://www.w3.org/2000/svg" fill={isCurrentBgFavorited ? "currentColor" : "none"} viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={`w-5 h-5 group-hover:text-red-500 transition-colors ${heartBeat ? 'text-red-500 animate-ping' : isCurrentBgFavorited ? 'text-red-500' : 'text-white'}`}> <path strokeLinecap="round" strokeLinejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" /> </svg> {heartBeat && <span className="absolute inset-0 rounded-full bg-red-500/30 animate-ping"></span>} </button>
                  <div className="relative" onMouseEnter={() => setShowSpeedControl(true)} onMouseLeave={() => setShowSpeedControl(false)}>
                      <button className="px-3 py-2 rounded-full bg-black/30 backdrop-blur text-white/80 hover:text-white border border-white/10 text-xs font-mono flex items-center gap-1 transition-colors"><span>{typingSpeed === 0 ? "MAX" : (100 - typingSpeed)/10 + "x"}</span></button>
                      <div className={`absolute top-full left-0 w-full h-4 ${showSpeedControl ? 'block' : 'hidden'}`}></div>
@@ -767,7 +666,7 @@ export const GameScreen: React.FC<GameScreenProps> = (props) => {
                 <button onClick={() => { playClickSound(); onOpenImageModal(); }} className="h-10 px-4 flex items-center justify-center gap-2 bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-xs tracking-widest uppercase transition-all active:translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed shadow-[4px_4px_0_rgba(0,0,0,0.5)] active:shadow-none border-2 border-black" style={{ backgroundImage: `repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(0,0,0,0.1) 10px, rgba(0,0,0,0.1) 20px)` }} disabled={generatingImage || isLoading} title="视觉具象化"><span className="font-sans font-black">{generatingImage ? "生成中..." : "具象化"}</span></button>
              </div>
         </div>
-        {!isUiVisible && <div className="absolute inset-0 z-50 cursor-pointer" onClick={() => setIsUiVisible(true)} title="点击恢复界面" />}
+        {!isUiVisible && <div className="absolute inset-0 z-50 cursor-pointer" onClick={() => setIsUiVisible(true)} title="点击隐藏界面 (沉浸模式)" />}
         <div className={`absolute bottom-0 left-0 w-full z-20 transition-all duration-500 transform ${isUiVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}>
             <div className="max-w-6xl mx-auto w-full px-4 pb-6 flex flex-col justify-end gap-4 relative pointer-events-none">
             {inputMode === 'choice' && (
@@ -806,6 +705,7 @@ export const GameScreen: React.FC<GameScreenProps> = (props) => {
                 </div>
             ) : (
                 <div className="pointer-events-auto h-[70vh] w-full flex flex-col justify-end relative" onClick={() => setIsUiVisible(false)}>
+                    {/* ... Text Mode Viewer (Unchanged) ... */}
                     <div className="overflow-y-auto px-4 pt-6 space-y-6 pb-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
                         {context.history.map((seg, idx) => {
                             const isCurrent = idx === context.history.length - 1;
