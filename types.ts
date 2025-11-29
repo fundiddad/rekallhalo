@@ -152,6 +152,8 @@ export interface PlotChapter {
   // Progression Status
   status?: 'pending' | 'active' | 'completed'; 
   finishedTurnCount?: number; // The turn number when this chapter was completed
+  // New: Prerequisites for chapter start
+  prerequisites?: string[]; 
 }
 
 export interface StorySegmentVersion {

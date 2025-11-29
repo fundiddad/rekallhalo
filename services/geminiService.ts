@@ -558,6 +558,7 @@ export const parseStoryOutline = async (outline: string): Promise<any> => {
         1. **PRIORITY**: If the outline text contains explicit chapter breakdowns, tables of contents, or structured plot points (e.g. "Chapter 1: ...", "Part 1: ...", "First Arc: ..."), you **MUST EXTRACT** these existing chapters exactly as described into the "plotBlueprint" array. Do NOT invent new chapters if the user provided them.
         2. **FALLBACK**: Only if the outline is a general summary without specific chapter structure should you creatively propose a new "plotBlueprint".
         3. Ensure "keyCharacters" in the blueprint match names in "supportingCharacters" or "character".
+        4. **PREREQUISITES**: If the outline mentions that a chapter or event depends on something (e.g. "After finding the sword...", "Must defeat X first"), extract these conditions into the "prerequisites" array for that chapter. If no prerequisites are mentioned, leave the array empty. **DO NOT invent prerequisites.**
         
         Output JSON Format:
         {
@@ -581,7 +582,8 @@ export const parseStoryOutline = async (outline: string): Promise<any> => {
                "targetWordCount": "integer (approx 3000-5000)",
                "keyEvents": "string (comma separated list of events)",
                "keyCharacters": ["string (names of characters involved)"],
-               "pacing": "fast | standard | slow"
+               "pacing": "fast | standard | slow",
+               "prerequisites": ["string (optional conditions)"]
              }
           ]
         }

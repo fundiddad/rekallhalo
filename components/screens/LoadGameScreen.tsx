@@ -72,6 +72,8 @@ const DownloadModal: React.FC<DownloadModalProps> = ({ save, resolvedBackground,
     const [includeImages, setIncludeImages] = useState(true);
 
     const handleDownloadConfig = () => {
+        // Explicitly including plotBlueprint and scheduledEvents for clarity, 
+        // though they are part of context.
         const configData = {
             storyName: save.storyName,
             genre: save.genre,
@@ -79,6 +81,8 @@ const DownloadModal: React.FC<DownloadModalProps> = ({ save, resolvedBackground,
             character: save.context.character,
             worldSettings: save.context.worldSettings,
             supportingCharacters: save.context.supportingCharacters,
+            plotBlueprint: save.context.plotBlueprint || [],
+            scheduledEvents: save.context.scheduledEvents || [],
             exportedAt: new Date().toISOString()
         };
         
@@ -136,7 +140,7 @@ const DownloadModal: React.FC<DownloadModalProps> = ({ save, resolvedBackground,
                         <div className="flex items-center gap-2 font-bold text-blue-700 mb-1">
                             下载故事配置
                         </div>
-                        <div className="text-[10px] text-blue-500/80">仅包含设定、主角信息、世界观与人物羁绊。</div>
+                        <div className="text-[10px] text-blue-500/80">包含设定、主角、世界观、剧情蓝图与预设伏笔。</div>
                     </button>
 
                     <button 
@@ -147,8 +151,8 @@ const DownloadModal: React.FC<DownloadModalProps> = ({ save, resolvedBackground,
                             下载当前节点存档
                         </div>
                         <div className="text-[10px] text-purple-500/80 leading-relaxed">
-                            包含完整的剧情历史与当前状态。<br/>
-                            <span className="text-rose-500 font-bold">注意：此选项仅保存当前节点及其线性过往，不包含该世界线上的其他平行分支。</span>
+                            包含完整的剧情历史、剧情蓝图与伏笔数据。<br/>
+                            <span className="text-rose-500 font-bold">注意：此选项仅保存当前节点，不包含其他平行分支。</span>
                         </div>
                     </button>
                     
@@ -162,7 +166,7 @@ const DownloadModal: React.FC<DownloadModalProps> = ({ save, resolvedBackground,
                         <div className="space-y-2 mb-3 w-full bg-white/50 p-2 rounded border border-emerald-200">
                             <label className="flex items-center gap-2 text-xs text-gray-700 cursor-not-allowed opacity-70">
                                 <input type="checkbox" checked disabled className="w-4 h-4" />
-                                <span>包含文本数据 (必需)</span>
+                                <span>包含文本与蓝图数据 (必需)</span>
                             </label>
                             <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
                                 <input 
@@ -520,7 +524,6 @@ export const LoadGameScreen: React.FC<LoadGameScreenProps> = ({ savedGames, onLo
         else { setPan({ x: 100, y: 100 }); setScale(0.8); }
     };
 
-    // ... (handleBackupSession, handleImport remain mostly unchanged, removed to save space in output unless requested, but needed for compilation. Including abbreviated logic)
     const handleBackupSession = (includeImages: boolean) => {
         if (!saveToDownload) return;
         const sessionSaves = savedGames.filter(s => s.sessionId === saveToDownload.sessionId);
@@ -566,9 +569,39 @@ export const LoadGameScreen: React.FC<LoadGameScreenProps> = ({ savedGames, onLo
                 let baseData: SavedGame;
                 if (json.context && json.id) baseData = json as SavedGame;
                 else if (json.character && json.worldSettings) {
-                    baseData = { id: generateUUID(), sessionId: generateUUID(), storyName: json.storyName, timestamp: Date.now(), genre: json.genre, characterName: json.character.name, summary: "导入的配置档案", context: { sessionId: generateUUID(), storyName: json.storyName, genre: json.genre, customGenre: json.customGenre, character: json.character, supportingCharacters: json.supportingCharacters || [], worldSettings: json.worldSettings, history: [], currentSegment: null, lastUpdated: Date.now(), memories: { ...DEFAULT_MEMORY }, scheduledEvents: [] }, type: SaveType.SETUP } as SavedGame;
+                    baseData = { 
+                        id: generateUUID(), 
+                        sessionId: generateUUID(), 
+                        storyName: json.storyName, 
+                        timestamp: Date.now(), 
+                        genre: json.genre, 
+                        characterName: json.character.name, 
+                        summary: "导入的配置档案", 
+                        context: { 
+                            sessionId: generateUUID(), 
+                            storyName: json.storyName, 
+                            genre: json.genre, 
+                            customGenre: json.customGenre, 
+                            character: json.character, 
+                            supportingCharacters: json.supportingCharacters || [], 
+                            worldSettings: json.worldSettings, 
+                            history: [], 
+                            currentSegment: null, 
+                            lastUpdated: Date.now(), 
+                            memories: { ...DEFAULT_MEMORY }, 
+                            scheduledEvents: json.scheduledEvents || [], 
+                            plotBlueprint: json.plotBlueprint || [] 
+                        }, 
+                        type: SaveType.SETUP 
+                    } as SavedGame;
                 } else { alert("无法识别的文件格式"); return; }
+                
                 const history = baseData.context.history as StorySegment[] || [];
+                
+                // Ensure context integrity even if importing older save formats
+                baseData.context.scheduledEvents = baseData.context.scheduledEvents || [];
+                baseData.context.plotBlueprint = baseData.context.plotBlueprint || [];
+
                 if (history.length === 0) {
                     baseData.id = generateUUID(); if (!baseData.sessionId) baseData.sessionId = generateUUID(); savesToProcess.push(baseData);
                 } else {
@@ -578,8 +611,30 @@ export const LoadGameScreen: React.FC<LoadGameScreenProps> = ({ savedGames, onLo
                     history.forEach((segment, index) => {
                         const isLast = index === history.length - 1;
                         const parentId = index === 0 ? undefined : history[index - 1].id;
-                        const node: SavedGame = { id: generateUUID(), sessionId: sessionId, storyName: baseData.storyName, storyId: segment.id, parentId: parentId, timestamp: baseTimestamp - ((history.length - 1 - index) * 60 * 1000), genre: baseData.genre, characterName: baseData.characterName, summary: segment.text ? (segment.text.substring(0, 50) + "...") : "历史节点", location: segment.location || baseData.location, choiceText: segment.causedBy || "", type: SaveType.AUTO, context: { ...baseData.context, sessionId: sessionId, history: history.slice(0, index + 1), currentSegment: segment, memories: isLast ? baseData.context.memories : { ...baseData.context.memories }, scheduledEvents: baseData.context.scheduledEvents || [] } };
-                        if (isLast) { node.summary = baseData.summary; node.type = baseData.type || SaveType.MANUAL; node.choiceLabel = baseData.choiceLabel; node.choiceText = baseData.choiceText || segment.causedBy; node.metaData = baseData.metaData; node.context = baseData.context; if (node.context.currentSegment) node.context.currentSegment.id = segment.id; if (!node.context.scheduledEvents) node.context.scheduledEvents = []; }
+                        const node: SavedGame = { 
+                            id: generateUUID(), 
+                            sessionId: sessionId, 
+                            storyName: baseData.storyName, 
+                            storyId: segment.id, 
+                            parentId: parentId, 
+                            timestamp: baseTimestamp - ((history.length - 1 - index) * 60 * 1000), 
+                            genre: baseData.genre, 
+                            characterName: baseData.characterName, 
+                            summary: segment.text ? (segment.text.substring(0, 50) + "...") : "历史节点", 
+                            location: segment.location || baseData.location, 
+                            choiceText: segment.causedBy || "", 
+                            type: SaveType.AUTO, 
+                            context: { 
+                                ...baseData.context, 
+                                sessionId: sessionId, 
+                                history: history.slice(0, index + 1), 
+                                currentSegment: segment, 
+                                memories: isLast ? baseData.context.memories : { ...baseData.context.memories }, 
+                                scheduledEvents: baseData.context.scheduledEvents || [], 
+                                plotBlueprint: baseData.context.plotBlueprint || [] 
+                            } 
+                        };
+                        if (isLast) { node.summary = baseData.summary; node.type = baseData.type || SaveType.MANUAL; node.choiceLabel = baseData.choiceLabel; node.choiceText = baseData.choiceText || segment.causedBy; node.metaData = baseData.metaData; node.context = baseData.context; if (node.context.currentSegment) node.context.currentSegment.id = segment.id; }
                         savesToProcess.push(node);
                     });
                 }
