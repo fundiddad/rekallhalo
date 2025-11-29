@@ -1,8 +1,8 @@
 
-
-import React from 'react';
-import { GameContext, ImageSize, StoryMood, MOOD_LABELS, SupportingCharacter, Character } from '../../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { GameContext, ImageSize, StoryMood, MOOD_LABELS, SupportingCharacter, Character, SavedGame, StoryGenre, StorySegment, ScheduledEvent } from '../../types';
 import { Button } from '../Button';
+import { GenreAvatar } from '../GenreAvatar';
 
 // Helper for location icons based on keywords
 // Updated to use black and white Unicode symbols/icons instead of colorful emojis
@@ -434,3 +434,223 @@ export const ImageGenModal = ({ selectedStyle, onSelectStyle, onGenerate, onClos
         </div>
     </div>
 );
+
+interface MultiSelectProps {
+    options: string[];
+    selected: string[];
+    onChange: (selected: string[]) => void;
+    label?: string;
+    placeholder?: string;
+}
+
+export const MultiSelectDropdown: React.FC<MultiSelectProps> = ({ options, selected, onChange, label, placeholder = "选择..." }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const handleToggle = (option: string) => {
+        if (selected.includes(option)) {
+            onChange(selected.filter(s => s !== option));
+        } else {
+            onChange([...selected, option]);
+        }
+    };
+
+    return (
+        <div className="relative w-full" ref={containerRef}>
+            {label && <label className="text-[10px] text-gray-500 font-bold block mb-1">{label}</label>}
+            
+            <div 
+                className={`w-full bg-white border rounded px-2 py-2 text-sm cursor-pointer flex justify-between items-center transition-colors min-h-[38px] ${isOpen ? 'border-blue-500 ring-1 ring-blue-500/20' : 'border-stone-300 hover:border-gray-400'}`}
+                onClick={() => setIsOpen(!isOpen)}
+            >
+                <div className="flex flex-wrap gap-1 flex-1">
+                    {selected.length === 0 && <span className="text-gray-400">{placeholder}</span>}
+                    {selected.map(item => (
+                        <span key={item} className="bg-blue-100 text-blue-700 text-[10px] px-1.5 py-0.5 rounded font-bold flex items-center gap-1">
+                            {item}
+                            <span 
+                                onClick={(e) => { e.stopPropagation(); handleToggle(item); }}
+                                className="cursor-pointer hover:text-blue-900 font-normal"
+                            >
+                                ✕
+                            </span>
+                        </span>
+                    ))}
+                </div>
+                <span className="text-gray-400 text-xs ml-2">▼</span>
+            </div>
+
+            {isOpen && (
+                <div className="absolute top-full left-0 w-full mt-1 bg-white border border-stone-300 rounded shadow-lg z-50 max-h-40 overflow-y-auto custom-scrollbar animate-fade-in-up">
+                    {options.map(option => {
+                        const isSelected = selected.includes(option);
+                        return (
+                            <div 
+                                key={option} 
+                                className={`px-3 py-2 text-sm cursor-pointer flex items-center gap-2 hover:bg-stone-50 ${isSelected ? 'bg-blue-50 text-blue-700' : 'text-gray-700'}`}
+                                onClick={() => handleToggle(option)}
+                            >
+                                <div className={`w-4 h-4 border rounded flex items-center justify-center ${isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-300 bg-white'}`}>
+                                    {isSelected && <span className="text-white text-[10px] font-bold">✓</span>}
+                                </div>
+                                <span>{option}</span>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+};
+
+interface AddEventModalProps {
+    onClose: () => void;
+    onConfirm: (event: any) => void;
+    characters: SupportingCharacter[];
+    protagonistName: string;
+    initialEvent?: ScheduledEvent | null; // Optional prop for editing
+}
+
+export const AddEventModal: React.FC<AddEventModalProps> = ({ onClose, onConfirm, characters, protagonistName, initialEvent }) => {
+    const [schedTime, setSchedTime] = useState('');
+    const [schedLocation, setSchedLocation] = useState('');
+    const [schedChars, setSchedChars] = useState<string[]>([]); // Multi-select array
+    const [schedType, setSchedType] = useState('一般事件');
+    const [schedDesc, setSchedDesc] = useState('');
+
+    useEffect(() => {
+        if (initialEvent) {
+            setSchedTime(initialEvent.time || '');
+            setSchedLocation(initialEvent.location || '');
+            // Attempt to split string back to array if it was stored as string
+            setSchedChars(initialEvent.characters ? initialEvent.characters.split(', ') : []);
+            setSchedType(initialEvent.type || '一般事件');
+            setSchedDesc(initialEvent.description || '');
+        }
+    }, [initialEvent]);
+
+    const handleSave = () => {
+        if (!schedDesc) return;
+        const eventData: any = {
+            type: schedType,
+            time: schedTime,
+            location: schedLocation,
+            characters: schedChars.join(', '), // Join array to string for storage
+            description: schedDesc
+        };
+        if (initialEvent) {
+            eventData.id = initialEvent.id;
+            eventData.createdTurn = initialEvent.createdTurn;
+            eventData.status = initialEvent.status;
+        }
+        onConfirm(eventData);
+        onClose();
+    };
+
+    // Prepare multi-select options
+    const characterOptions = [
+        `${protagonistName}`,
+        ...characters.map(c => c.name),
+        "新角色",
+        "其他势力/组织"
+    ];
+
+    return (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fade-in-up" onClick={onClose}>
+            <div className="bg-stone-100 border border-stone-200 p-6 rounded-xl shadow-2xl max-w-sm w-full relative text-gray-800" onClick={e => e.stopPropagation()}>
+                <h3 className="text-lg font-bold text-blue-800 mb-4 flex items-center gap-2">
+                    {initialEvent ? '编辑预设伏笔' : '添加预设事件 / 伏笔'}
+                </h3>
+                
+                <div className="space-y-4">
+                    {/* Row 1: Time & Location */}
+                    <div className="flex gap-2">
+                        <div className="flex-1">
+                            <input 
+                                value={schedTime} 
+                                onChange={e => setSchedTime(e.target.value)} 
+                                placeholder="时间 (例如: 下一幕, 明天)" 
+                                className="w-full bg-white border border-stone-300 rounded px-2 py-2 text-sm text-gray-800 outline-none focus:border-blue-500 placeholder-gray-400 transition-colors" 
+                            />
+                        </div>
+                        <div className="flex-1">
+                            <input 
+                                value={schedLocation} 
+                                onChange={e => setSchedLocation(e.target.value)} 
+                                placeholder="地点" 
+                                className="w-full bg-white border border-stone-300 rounded px-2 py-2 text-sm text-gray-800 outline-none focus:border-blue-500 placeholder-gray-400 transition-colors" 
+                            />
+                        </div>
+                    </div>
+
+                    {/* Row 2: Type & Characters */}
+                    <div className="flex flex-col gap-2">
+                        <div className="relative">
+                            <select 
+                                value={schedType} 
+                                onChange={e => setSchedType(e.target.value)} 
+                                className="w-full bg-white border border-stone-300 rounded px-2 py-2 text-sm text-gray-800 outline-none focus:border-blue-500 cursor-pointer appearance-none"
+                            >
+                                <option value="一般事件">一般事件</option>
+                                <option value="战斗遭遇">战斗遭遇</option>
+                                <option value="人物重逢">人物重逢</option>
+                                <option value="重要转折">重要转折</option>
+                                <option value="物品发现">物品发现</option>
+                            </select>
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none">▼</span>
+                        </div>
+
+                        <MultiSelectDropdown 
+                            options={characterOptions}
+                            selected={schedChars}
+                            onChange={setSchedChars}
+                            placeholder="涉及人物 (可多选)..."
+                        />
+                    </div>
+
+                    {/* Row 3: Description */}
+                    <div>
+                        <textarea 
+                            value={schedDesc} 
+                            onChange={e => setSchedDesc(e.target.value)} 
+                            placeholder="简短描述事件内容，AI将尝试在后续剧情中自然触发..." 
+                            className="w-full h-20 bg-white border border-stone-300 rounded px-2 py-2 text-sm text-gray-800 outline-none focus:border-blue-500 placeholder-gray-400 transition-colors resize-none custom-scrollbar" 
+                        />
+                    </div>
+                </div>
+
+                <div className="flex gap-4 mt-6">
+                    <button 
+                        onClick={onClose}
+                        className="flex-1 py-2 text-sm font-bold bg-gray-200 hover:bg-gray-300 text-gray-700 clip-path-polygon hover:shadow-lg transition-all active:translate-y-0.5"
+                        style={{ clipPath: "polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)" }}
+                    >
+                        取消
+                    </button>
+                    <button 
+                        onClick={handleSave}
+                        disabled={!schedDesc}
+                        className={`flex-1 py-2 text-sm font-bold clip-path-polygon transition-all shadow-lg active:translate-y-0.5
+                            ${!schedDesc 
+                                ? 'bg-stone-200 text-gray-400 cursor-not-allowed' 
+                                : 'bg-blue-600 hover:bg-blue-500 text-white'}
+                        `}
+                        style={{ clipPath: "polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)" }}
+                    >
+                        {initialEvent ? '更新伏笔' : '添加伏笔'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};

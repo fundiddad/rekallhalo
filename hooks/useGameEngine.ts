@@ -1,6 +1,12 @@
 
+
+
+
+
+
+
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { GameState, StoryGenre, GameContext, StorySegment, ImageSize, SavedGame, StoryMood, generateUUID, SaveType, Skill, AvatarStyle, BackgroundStyle, GalleryItem, MOOD_LABELS, InputMode, MemoryState, ImageModel, SupportingCharacter, VisualEffectType, ShotSize, ScheduledEvent } from '../types';
+import { GameState, StoryGenre, GameContext, StorySegment, ImageSize, SavedGame, StoryMood, generateUUID, SaveType, Skill, AvatarStyle, BackgroundStyle, GalleryItem, MOOD_LABELS, InputMode, MemoryState, ImageModel, SupportingCharacter, VisualEffectType, ShotSize, ScheduledEvent, PlotChapter } from '../types';
 import * as GeminiService from '../services/geminiService';
 import { getRandomBackground, getSmartBackground } from '../components/SmoothBackground';
 
@@ -59,7 +65,7 @@ const getInitialContext = (): GameContext => ({
     storyName: '',
     genre: StoryGenre.XIANXIA,
     customGenre: '',
-    character: { name: '', trait: '', gender: 'male', skills: [] },
+    character: { name: '', trait: '', gender: 'male', perspective: 'third', skills: [] },
     supportingCharacters: [],
     worldSettings: { isHarem: false, isAdult: false, hasSystem: false, tone: StoryMood.PEACEFUL },
     history: [],
@@ -68,7 +74,8 @@ const getInitialContext = (): GameContext => ({
     memories: JSON.parse(JSON.stringify(DEFAULT_MEMORY)),
     narrativeMode: 'auto',
     narrativeTechnique: 'auto',
-    scheduledEvents: [] // Initial empty list
+    scheduledEvents: [], // Initial empty list
+    plotBlueprint: [] // Initial empty blueprint
 });
 
 export const useGameEngine = () => {
@@ -201,6 +208,9 @@ export const useGameEngine = () => {
                     s.context.character.avatar = avatarDict[s.sessionId];
                 }
                 if (!s.context.scheduledEvents) s.context.scheduledEvents = [];
+                if (!s.context.plotBlueprint) s.context.plotBlueprint = [];
+                // Default perspective fallback for old saves
+                if (!s.context.character.perspective) s.context.character.perspective = 'third';
                 return s;
             });
             setSavedGames(hydratedSaves); 
@@ -606,13 +616,18 @@ export const useGameEngine = () => {
     if (!context.character.name || !context.character.trait) { setError("请输入角色姓名和性格关键词"); return; }
     setError(null); setCurrentLoadedSaveId(null);
     abortControllerRef.current = new AbortController();
-    setContext(prev => ({ ...prev, sessionId: prev.sessionId || generateUUID(), scheduledEvents: [] }));
+    
+    // Initialize first chapter as active if exists
+    const initialBlueprint = context.plotBlueprint ? context.plotBlueprint.map((c, i) => i === 0 ? { ...c, status: 'active' as const } : c) : [];
+
+    setContext(prev => ({ ...prev, sessionId: prev.sessionId || generateUUID(), scheduledEvents: [], plotBlueprint: initialBlueprint }));
     setGameState(GameState.LOADING); setLoadingProgress(0);
     if (progressTimerRef.current) clearInterval(progressTimerRef.current);
     progressTimerRef.current = setInterval(() => { setLoadingProgress(prev => { if (prev >= 95) return prev; return Math.min(prev + (prev < 50 ? Math.random() * 5 + 2 : Math.random() + 0.5), 95); }); }, 200);
 
     try {
-      const opening = await GeminiService.generateOpening(context.genre, context.character, context.supportingCharacters, context.worldSettings, aiModel, context.customGenre, context.storyName, customPrompt, context.narrativeMode, context.narrativeTechnique);
+      // Pass the potentially updated blueprint with active status
+      const opening = await GeminiService.generateOpening(context.genre, context.character, context.supportingCharacters, context.worldSettings, aiModel, context.customGenre, context.storyName, customPrompt, context.narrativeMode, context.narrativeTechnique, initialBlueprint);
       if (abortControllerRef.current?.signal.aborted) throw new Error("Aborted");
       setLoadingProgress(prev => Math.max(prev, 40));
       const avatarPromise = GeminiService.generateCharacterAvatar(context.genre, context.character, avatarStyle, imageModel, customAvatarStyle, modelScopeApiKey, avatarRefImage);
@@ -643,6 +658,8 @@ export const useGameEngine = () => {
     ctx.sessionId = save.sessionId;
     setCurrentLoadedSaveId(save.id);
     if (!ctx.scheduledEvents) ctx.scheduledEvents = []; // Ensure scheduledEvents exists
+    if (!ctx.plotBlueprint) ctx.plotBlueprint = []; // Ensure plotBlueprint exists
+    if (!ctx.character.perspective) ctx.character.perspective = 'third'; // Default perspective
     if (!ctx.storyName && save.storyName) ctx.storyName = save.storyName; else if (save.storyName) ctx.storyName = save.storyName;
     if (!ctx.character.avatar) { try { const storedAvatars = localStorage.getItem('protagonist_avatars'); if (storedAvatars) { const dict = JSON.parse(storedAvatars); if (dict[save.sessionId]) ctx.character.avatar = dict[save.sessionId]; } } catch (e) {} }
     if (ctx.currentSegment && !ctx.currentSegment.backgroundImage) { let curr: SavedGame | undefined = save; let resolvedBg: string | undefined = undefined; while (curr && !resolvedBg) { if (curr.context.currentSegment?.backgroundImage) { resolvedBg = curr.context.currentSegment.backgroundImage; } else if (curr.parentId) { const pid = curr.parentId; curr = savedGames.find(s => s.storyId === pid); } else { break; } } if (resolvedBg) ctx.currentSegment.backgroundImage = resolvedBg; }
@@ -674,12 +691,14 @@ export const useGameEngine = () => {
           customPrompt, 
           context.scheduledEvents || [],
           context.narrativeMode,
-          context.narrativeTechnique
+          context.narrativeTechnique,
+          context.plotBlueprint
       );
       nextSegment.causedBy = choice;
 
       // Check for Triggered Event
       let updatedEvents = context.scheduledEvents ? [...context.scheduledEvents] : [];
+      let triggeredEventCount = 0;
       if (nextSegment.triggeredEventId) {
           const eventIndex = updatedEvents.findIndex(e => e.id === nextSegment.triggeredEventId);
           if (eventIndex !== -1 && updatedEvents[eventIndex].status === 'pending') {
@@ -688,7 +707,68 @@ export const useGameEngine = () => {
                   status: 'completed',
                   triggeredTurn: historyToUse.length + 1
               };
+              triggeredEventCount = 1;
               playBeep(1000, 0.5, 'sine'); // Success ping for event triggering
+          }
+      }
+
+      // Check for Chapter Progression (Word Count & Advanced Criteria)
+      let updatedBlueprint = context.plotBlueprint ? [...context.plotBlueprint] : [];
+      if (updatedBlueprint.length > 0) {
+          // Calculate total words in current history
+          const totalWords = [...historyToUse, nextSegment].reduce((acc, seg) => acc + (seg.text?.length || 0), 0);
+          
+          const activeIndex = updatedBlueprint.findIndex(c => c.status === 'active');
+          
+          if (activeIndex !== -1) {
+              const activeChapter = updatedBlueprint[activeIndex];
+              
+              // Update Stats
+              const prevStats = activeChapter.trackedStats || { currentWordCount: 0, eventsTriggered: 0, interactionsCount: 0 };
+              const isInteraction = activeChapter.keyCharacters.some(charName => nextSegment.activeCharacterName?.includes(charName));
+              
+              const newStats = {
+                  currentWordCount: totalWords, // Note: This is cumulative story length, but tracked per chapter conceptually if needed
+                  eventsTriggered: prevStats.eventsTriggered + triggeredEventCount,
+                  interactionsCount: prevStats.interactionsCount + (isInteraction ? 1 : 0)
+              };
+
+              // Check if we passed ALL thresholds
+              // 1. Word Count Threshold
+              let thresholdWordCount = 0;
+              for (let i = 0; i <= activeIndex; i++) {
+                  thresholdWordCount += updatedBlueprint[i].targetWordCount;
+              }
+              const wordCountMet = totalWords >= thresholdWordCount;
+
+              // 2. Custom Criteria
+              const criteria = activeChapter.completionCriteria || {};
+              const eventsMet = !criteria.minKeyEvents || newStats.eventsTriggered >= criteria.minKeyEvents;
+              const interactionsMet = !criteria.minInteractions || newStats.interactionsCount >= criteria.minInteractions;
+
+              const isChapterComplete = wordCountMet && eventsMet && interactionsMet;
+
+              // Update the chapter with new stats
+              updatedBlueprint[activeIndex] = {
+                  ...activeChapter,
+                  trackedStats: newStats,
+                  status: isChapterComplete ? 'completed' : 'active',
+                  finishedTurnCount: isChapterComplete ? historyToUse.length + 1 : undefined
+              };
+
+              if (isChapterComplete) {
+                  // Activate next if exists
+                  if (activeIndex + 1 < updatedBlueprint.length) {
+                      updatedBlueprint[activeIndex + 1] = {
+                          ...updatedBlueprint[activeIndex + 1],
+                          status: 'active'
+                      };
+                      playBeep(1200, 0.6, 'square'); // Chapter Complete Sound
+                  }
+              }
+          } else if (updatedBlueprint.length > 0 && !updatedBlueprint.some(c => c.status === 'completed')) {
+              // Edge case: No active chapter started yet (e.g. imported game), activate first
+              updatedBlueprint[0] = { ...updatedBlueprint[0], status: 'active' };
           }
       }
 
@@ -702,7 +782,7 @@ export const useGameEngine = () => {
         let updatedChars = prev.supportingCharacters;
         if (nextSegment.affinityChanges) { updatedChars = updatedChars.map(c => { const change = nextSegment.affinityChanges?.[c.name]; if (change) return { ...c, affinity: (c.affinity || 0) + change }; return c; }); }
         if (!nextSegment.backgroundImage) nextSegment.backgroundImage = bgImage; else setBgImage(nextSegment.backgroundImage);
-        return { ...prev, supportingCharacters: updatedChars, history: [...historyToUse, nextSegment], currentSegment: nextSegment, lastUpdated: Date.now(), lastChoiceIdx: choiceIdx, memories: nextSegment.newMemories || prev.memories, scheduledEvents: updatedEvents };
+        return { ...prev, supportingCharacters: updatedChars, history: [...historyToUse, nextSegment], currentSegment: nextSegment, lastUpdated: Date.now(), lastChoiceIdx: choiceIdx, memories: nextSegment.newMemories || prev.memories, scheduledEvents: updatedEvents, plotBlueprint: updatedBlueprint };
       });
       playProgressSound(); setIsLoading(false);
     } catch (err) { setError("剧情推进失败，请重试。"); setIsLoading(false); }
@@ -720,7 +800,7 @@ export const useGameEngine = () => {
   const handleGlobalReplace = (findText: string, replaceText: string): number => { if (!findText || !replaceText) return 0; const escapeRegExp = (string: string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); const regex = new RegExp(escapeRegExp(findText), 'g'); let count = 0; const countIn = (s: string | undefined) => s ? (s.match(regex) || []).length : 0; Object.values(context.memories).forEach(val => { if (typeof val === 'string') count += countIn(val); }); const limit = 5; const startIndex = Math.max(0, context.history.length - limit); for (let i = startIndex; i < context.history.length; i++) { const seg = context.history[i]; count += countIn(seg.text); seg.choices.forEach(c => count += countIn(c)); } if (context.currentSegment && !context.history.find(h => h.id === context.currentSegment?.id)) { count += countIn(context.currentSegment.text); } if (count === 0) return 0; setContext(prev => { const newMemories = { ...prev.memories }; (Object.keys(newMemories) as (keyof MemoryState)[]).forEach(k => { if (typeof newMemories[k] === 'string') newMemories[k] = newMemories[k].replace(regex, replaceText); }); const newHistory = [...prev.history]; const start = Math.max(0, newHistory.length - limit); for (let i = start; i < newHistory.length; i++) { let updatedText = newHistory[i].text.replace(regex, replaceText); let updatedChoices = newHistory[i].choices.map(c => c.replace(regex, replaceText)); newHistory[i] = { ...newHistory[i], text: updatedText, choices: updatedChoices }; } let newCurrent = prev.currentSegment ? { ...prev.currentSegment } : null; if (newCurrent) { newCurrent.text = newCurrent.text.replace(regex, replaceText); newCurrent.choices = newCurrent.choices.map(c => c.replace(regex, replaceText)); } return { ...prev, memories: newMemories, history: newHistory, currentSegment: newCurrent, lastUpdated: Date.now() }; }); return count; };
   const handleUpgradeSkill = (skillId: string) => { setContext(prev => ({ ...prev, character: { ...prev.character, skills: prev.character.skills.map(s => s.id === skillId ? { ...s, level: (s.level || 1) + 1 } : s ) } })); playProgressSound(); };
   const handleAbortGame = () => { if (abortControllerRef.current) abortControllerRef.current.abort(); if (progressTimerRef.current) clearInterval(progressTimerRef.current); setGameState(GameState.SETUP); setError("已终止世界生成。"); playClickSound(); };
-  const handleRegenerate = async () => { playClickSound(); const lastIdx = context.history.length - 1; if (lastIdx < 0) return; const lastSegment = context.history[lastIdx]; if (lastIdx > 0 && !lastSegment.causedBy) { setError("无法重新生成此节点"); return; } setIsLoading(true); setError(null); try { let newSegment: StorySegment; const historyContext = context.history.slice(0, lastIdx); if (lastIdx === 0) { newSegment = await GeminiService.generateOpening(context.genre, context.character, context.supportingCharacters, context.worldSettings, aiModel, context.customGenre, context.storyName, customPrompt, context.narrativeMode, context.narrativeTechnique); } else { const causedBy = lastSegment.causedBy || ""; newSegment = await GeminiService.advanceStory(historyContext, causedBy, context.genre, context.character, context.supportingCharacters, context.worldSettings, context.memories, aiModel, context.customGenre, customPrompt, context.scheduledEvents || [], context.narrativeMode, context.narrativeTechnique); newSegment.causedBy = causedBy; } setContext(prev => { const history = [...prev.history]; const currentSeg = { ...history[lastIdx] }; if (!currentSeg.versions) { currentSeg.versions = [{ text: currentSeg.text, choices: currentSeg.choices, visualPrompt: currentSeg.visualPrompt, mood: currentSeg.mood }]; currentSeg.currentVersionIndex = 0; } const newVersion = { text: newSegment.text, choices: newSegment.choices, visualPrompt: newSegment.visualPrompt, mood: newSegment.mood, location: newSegment.location }; currentSeg.versions.push(newVersion); const newIdx = currentSeg.versions.length - 1; currentSeg.currentVersionIndex = newIdx; currentSeg.text = newVersion.text; currentSeg.choices = newVersion.choices; currentSeg.visualPrompt = newVersion.visualPrompt; currentSeg.mood = newVersion.mood; currentSeg.location = newVersion.location; history[lastIdx] = currentSeg; return { ...prev, history, currentSegment: currentSeg, memories: newSegment.newMemories || prev.memories, lastUpdated: Date.now() }; }); playProgressSound(); } catch (e) { console.error("Regenerate failed", e); setError("重新生成失败"); } finally { setIsLoading(false); } };
+  const handleRegenerate = async () => { playClickSound(); const lastIdx = context.history.length - 1; if (lastIdx < 0) return; const lastSegment = context.history[lastIdx]; if (lastIdx > 0 && !lastSegment.causedBy) { setError("无法重新生成此节点"); return; } setIsLoading(true); setError(null); try { let newSegment: StorySegment; const historyContext = context.history.slice(0, lastIdx); if (lastIdx === 0) { newSegment = await GeminiService.generateOpening(context.genre, context.character, context.supportingCharacters, context.worldSettings, aiModel, context.customGenre, context.storyName, customPrompt, context.narrativeMode, context.narrativeTechnique, context.plotBlueprint); } else { const causedBy = lastSegment.causedBy || ""; newSegment = await GeminiService.advanceStory(historyContext, causedBy, context.genre, context.character, context.supportingCharacters, context.worldSettings, context.memories, aiModel, context.customGenre, customPrompt, context.scheduledEvents || [], context.narrativeMode, context.narrativeTechnique, context.plotBlueprint); newSegment.causedBy = causedBy; } setContext(prev => { const history = [...prev.history]; const currentSeg = { ...history[lastIdx] }; if (!currentSeg.versions) { currentSeg.versions = [{ text: currentSeg.text, choices: currentSeg.choices, visualPrompt: currentSeg.visualPrompt, mood: currentSeg.mood }]; currentSeg.currentVersionIndex = 0; } const newVersion = { text: newSegment.text, choices: newSegment.choices, visualPrompt: newSegment.visualPrompt, mood: newSegment.mood, location: newSegment.location }; currentSeg.versions.push(newVersion); const newIdx = currentSeg.versions.length - 1; currentSeg.currentVersionIndex = newIdx; currentSeg.text = newVersion.text; currentSeg.choices = newVersion.choices; currentSeg.visualPrompt = newVersion.visualPrompt; currentSeg.mood = newVersion.mood; currentSeg.location = newVersion.location; history[lastIdx] = currentSeg; return { ...prev, history, currentSegment: currentSeg, memories: newSegment.newMemories || prev.memories, lastUpdated: Date.now() }; }); playProgressSound(); } catch (e) { console.error("Regenerate failed", e); setError("重新生成失败"); } finally { setIsLoading(false); } };
   const handleSwitchVersion = (segmentId: string, direction: 'prev' | 'next') => { playClickSound(); setContext(prev => { const history = [...prev.history]; const idx = history.findIndex(h => h.id === segmentId); if (idx === -1) return prev; const seg = { ...history[idx] }; if (!seg.versions || seg.versions.length < 2) return prev; let newIdx = (seg.currentVersionIndex || 0) + (direction === 'next' ? 1 : -1); if (newIdx < 0) newIdx = seg.versions.length - 1; if (newIdx >= seg.versions.length) newIdx = 0; if (newIdx === seg.currentVersionIndex) return prev; const v = seg.versions[newIdx]; seg.currentVersionIndex = newIdx; seg.text = v.text; seg.choices = v.choices; seg.visualPrompt = v.visualPrompt; seg.mood = v.mood; seg.location = v.location; history[idx] = seg; const isCurrent = prev.currentSegment?.id === segmentId; return { ...prev, history, currentSegment: isCurrent ? seg : prev.currentSegment, lastUpdated: Date.now() }; }); };
   const handleGenerateImage = async () => { playClickSound(); if (!context.currentSegment?.visualPrompt || !context.currentSegment?.id) return; toggleModal('image', false); const characterInfo = `Character Name: ${context.character.name}, Gender: ${context.character.gender}, Appearance: ${context.character.trait}`; triggerManualImageGeneration(context.currentSegment.visualPrompt, context.currentSegment.id, selectedImageStyle, characterInfo, customImageStyle, context.character.avatar); };
 

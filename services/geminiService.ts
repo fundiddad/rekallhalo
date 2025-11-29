@@ -1,6 +1,7 @@
 
+
 import { GoogleGenAI, Type, HarmCategory, HarmBlockThreshold } from "@google/genai";
-import { StoryGenre, Character, StorySegment, ImageSize, SupportingCharacter, StoryMood, generateUUID, WorldSettings, Skill, AvatarStyle, MemoryState, ImageModel, ShotSize, ScheduledEvent } from '../types';
+import { StoryGenre, Character, StorySegment, ImageSize, SupportingCharacter, StoryMood, generateUUID, WorldSettings, Skill, AvatarStyle, MemoryState, ImageModel, ShotSize, ScheduledEvent, PlotChapter } from '../types';
 import { WULIN_CONTEXT, WESTERN_FANTASY_CONTEXT, NARRATIVE_STRUCTURES, NARRATIVE_TECHNIQUES } from '../constants';
 
 // Initialize client with the env key.
@@ -123,7 +124,8 @@ export const generateOpening = async (
     storyName?: string,
     customPrompt?: string,
     narrativeMode?: string,
-    narrativeTechnique?: string
+    narrativeTechnique?: string,
+    plotBlueprint: PlotChapter[] = []
 ): Promise<StorySegment> => {
   
   const worldContext = getWorldContext(genre);
@@ -135,8 +137,30 @@ export const generateOpening = async (
     [NARRATIVE CONFIGURATION]
     Structure: ${structure ? `${structure.name} - ${structure.description}` : 'Auto-adapt based on genre'}
     Technique: ${technique ? `${technique.name} - ${technique.description}` : 'Auto-adapt based on context'}
+    Perspective: ${character.perspective === 'first' ? "FIRST PERSON ('I'/'我')" : character.perspective === 'second' ? "SECOND PERSON ('You'/'你')" : character.perspective === 'omniscient' ? "OMNISCIENT (All-knowing)" : "THIRD PERSON (Standard Novel)"}
+    
     Make sure the opening reflects this narrative style immediately.
   `;
+
+  let blueprintInstruction = "";
+  if (plotBlueprint.length > 0) {
+      // Find the first chapter (Chapter 1)
+      const chapter1 = plotBlueprint[0];
+      const pacingInstruction = chapter1.pacing === 'fast' 
+          ? "PACING: FAST. Jump straight into action. Minimize heavy exposition. High stakes immediately."
+          : chapter1.pacing === 'slow' 
+          ? "PACING: SLOW. Focus on atmosphere, sensory details, and character introspection. Build the world slowly."
+          : "PACING: STANDARD. Balanced progression.";
+
+      blueprintInstruction = `
+      [CURRENT CHAPTER OBJECTIVE]
+      Title: ${chapter1.title}
+      Context: ${chapter1.summary}
+      Mandatory Key Events for this chapter: ${chapter1.keyEvents}
+      Characters Involved: ${chapter1.keyCharacters.join(', ')}
+      ${pacingInstruction}
+      `;
+  }
 
   const prompt = `
     Role: You are an advanced interactive fiction engine.
@@ -162,6 +186,7 @@ export const generateOpening = async (
     ${supportingCharacters.map(c => `- ${c.name} (${c.role}): ${c.personality || 'Unknown'}`).join('\n')}
 
     ${narrativeInstruction}
+    ${blueprintInstruction}
 
     [CUSTOM INSTRUCTIONS]
     ${customPrompt || "Focus on immersive storytelling."}
@@ -220,13 +245,42 @@ export const advanceStory = async (
     customPrompt?: string,
     scheduledEvents: ScheduledEvent[] = [],
     narrativeMode?: string,
-    narrativeTechnique?: string
+    narrativeTechnique?: string,
+    plotBlueprint: PlotChapter[] = []
 ): Promise<StorySegment> => {
     
-    const recentHistory = history.slice(-5); // Provide context window
-    const worldContext = getWorldContext(genre);
+    // --- OPTIMIZATION 1: DYNAMIC HISTORY SIZING ---
+    const lastTurnIndex = history.length - 1;
+    const historyWindow = [];
     
-    // Narrative Config
+    if (lastTurnIndex > 0) {
+        const prev = history[lastTurnIndex - 1];
+        historyWindow.push(`Turn ${lastTurnIndex - 1}: ${prev.text.substring(0, 150)}... Choice: ${prev.causedBy}`);
+    }
+    if (lastTurnIndex >= 0) {
+        const curr = history[lastTurnIndex];
+        historyWindow.push(`Turn ${lastTurnIndex} (IMMEDIATE PAST): ${curr.text} \nUser Choice/Input: ${curr.causedBy}`);
+    }
+
+    const shouldInjectFullContext = history.length < 3;
+    const worldContext = shouldInjectFullContext ? getWorldContext(genre) : `[Genre: ${genre}]`;
+
+    // --- OPTIMIZATION 3: RELEVANT CHARACTER FILTERING ---
+    const lastActiveName = history[lastTurnIndex]?.activeCharacterName || "";
+    const sortedChars = [...supportingCharacters].sort((a, b) => 
+        ((b.affinity || 0) - (a.affinity || 0)) 
+    );
+    
+    const relevantChars = sortedChars.filter((c, idx) => {
+        const isKey = idx < 5; 
+        const isActive = lastActiveName.includes(c.name);
+        return isKey || isActive;
+    }).slice(0, 8); 
+
+    const charListString = relevantChars.map(c => 
+        `- ${c.name} (${c.role}, Aff:${c.affinity||0}, Gender:${c.gender})`
+    ).join('\n');
+    
     const structure = NARRATIVE_STRUCTURES.find(s => s.id === narrativeMode);
     const technique = NARRATIVE_TECHNIQUES.find(t => t.id === narrativeTechnique);
     
@@ -234,7 +288,7 @@ export const advanceStory = async (
       [NARRATIVE STYLE]
       Structure: ${structure ? structure.name : 'Standard'}
       Technique: ${technique ? technique.name : 'Standard'}
-      Instruction: Maintain the story flow according to this structure. Use the technique to enhance the narrative depth (e.g. if 'Non-linear', you can use flashbacks; if 'Multiple Perspectives', you can shift focus).
+      Perspective: ${character.perspective === 'first' ? "FIRST PERSON ('I'/'我')" : character.perspective === 'second' ? "SECOND PERSON ('You'/'你')" : character.perspective === 'omniscient' ? "OMNISCIENT" : "THIRD PERSON"}
     `;
 
     // Filter Pending Events
@@ -242,75 +296,91 @@ export const advanceStory = async (
     let eventsInstruction = "";
     if (pendingEvents.length > 0) {
         eventsInstruction = `
-        [PRESET EVENTS / PLOT POINTS (HIGHEST PRIORITY)]
-        The user has scheduled specific future events. You are the Director (DM).
-        
-        PENDING EVENTS:
-        ${pendingEvents.map(e => `- ID: "${e.id}" | Type: ${e.type} | Details: ${e.description}`).join('\n')}
-
-        CRITICAL INSTRUCTION FOR EVENTS:
-        1. You MUST try to weave these events into the story naturally.
-        2. **COMBINE with Narrative Style**: Do not just insert the event bluntly. 
-           - If using 'Symbolism', make the event metaphorical. 
-           - If 'Non-linear', maybe the event is a premonition or memory. 
-           - If 'Parallel Narrative', the event might happen elsewhere while the protagonist is busy.
-        3. If you successfully incorporate/trigger a specific event in THIS segment, you MUST include its ID in the "triggeredEventId" field.
-        4. Do NOT force it if it breaks logical consistency, but steer the plot towards it.
+        [PENDING GLOBAL EVENTS]
+        The user has these floating plot points waiting to happen. If appropriate, weave ONE into the story naturally.
+        ${pendingEvents.map(e => `(ID:${e.id}) ${e.type}: ${e.description}`).join('\n')}
+        If triggered, return its ID in 'triggeredEventId'.
         `;
     }
 
-    const prompt = `
-      Role: You are an advanced interactive fiction engine.
-      Task: Continue the story based on the user's choice.
-      Language: Simplified Chinese (简体中文).
+    let blueprintInstruction = "";
+    if (plotBlueprint.length > 0) {
+        // Find the currently ACTIVE chapter
+        // If no chapter is marked active, default to the first one that isn't completed.
+        let activeChapter = plotBlueprint.find(c => c.status === 'active');
+        if (!activeChapter) {
+             activeChapter = plotBlueprint.find(c => c.status !== 'completed') || plotBlueprint[plotBlueprint.length - 1];
+        }
 
-      [WORLD SETTING]
+        if (activeChapter) {
+            const pacingInstruction = activeChapter.pacing === 'fast' 
+                ? "PACING: FAST. Keep scenes short and intense. Advance plot rapidly."
+                : activeChapter.pacing === 'slow' 
+                ? "PACING: SLOW. Focus on conversations, internal monologue, and environmental details."
+                : "PACING: STANDARD.";
+
+            const completionStatus = activeChapter.trackedStats 
+                ? `Progress: Words(${activeChapter.trackedStats.currentWordCount}/${activeChapter.targetWordCount}), Events(${activeChapter.trackedStats.eventsTriggered}), Interactions(${activeChapter.trackedStats.interactionsCount})` 
+                : "";
+
+            blueprintInstruction = `
+            [CURRENT CHAPTER: ${activeChapter.title}]
+            Context: ${activeChapter.summary}
+            MANDATORY KEY EVENTS: ${activeChapter.keyEvents}
+            Key Characters to include: ${activeChapter.keyCharacters.join(', ')}
+            ${pacingInstruction}
+            ${completionStatus}
+            
+            Focus on progressing towards these Key Events.
+            `;
+        }
+    }
+
+    const prompt = `
+      Role: Interactive fiction engine.
+      Task: Continue the story.
+      Language: Simplified Chinese.
+
+      [SETTING]
       ${worldContext}
       ${customGenre ? `Context: ${customGenre}` : ''}
       Tone: ${worldSettings.tone}
       System: ${worldSettings.hasSystem ? 'On' : 'Off'}
 
       [CHARACTERS]
-      Protagonist: ${character.name} (${character.gender})
-      Skills: ${character.skills.map(s => s.name).join(', ')}
-      Key NPCs: ${supportingCharacters.map(c => `${c.name}(${c.role}, Affinity:${c.affinity || 0})`).join(', ')}
+      Protagonist: ${character.name}
+      Key NPCs:
+      ${charListString}
 
-      [CURRENT STATE]
-      Location: ${history[history.length - 1].location}
-      Mood: ${history[history.length - 1].mood}
+      [STATE]
+      Location: ${history[lastTurnIndex].location}
+      Mood: ${history[lastTurnIndex].mood}
       
       [MEMORIES]
-      Zone: ${memories.memoryZone}
-      Recent Story: ${memories.storyMemory}
-      Core Info: ${memories.coreMemory}
+      Recent: ${memories.storyMemory}
+      Core: ${memories.coreMemory}
       Items: ${memories.inventory}
 
       [RECENT HISTORY]
-      ${recentHistory.map((h, i) => `Turn ${i}: ${h.text.substring(0, 100)}... Choice: ${h.causedBy}`).join('\n')}
+      ${historyWindow.join('\n\n')}
 
       [USER INPUT]
       "${userChoice}"
 
       ${narrativeInstruction}
+      ${blueprintInstruction}
       ${eventsInstruction}
 
-      [CUSTOM RULES]
+      [RULES]
       ${customPrompt || ""}
+      1. High dialogue ratio.
+      2. If 'Recent Story' memory is getting too long (>500 words), SUMMARIZE older events into it and compress.
+      3. VISUAL PROMPT: Keep it concise. Scenery only. No humans.
 
-      Ensure a high ratio of dialogue. Include at least 5 lines of dialogue in this segment to reveal character personalities and relationships.
-
-      [OUTPUT REQUIREMENTS]
-      1. text: Continue the story (200-300 words). React to user input logically.
-      2. choices: 2-4 meaningful options.
-      3. visualPrompt: English prompt for image generation.
-      4. mood: [PEACEFUL, BATTLE, TENSE, EMOTIONAL, MYSTERIOUS, VICTORY].
-      5. activeCharacterName: Who is speaking/acting?
-      6. location: Current location name.
-      7. affinityUpdates: Array of {characterName, change} (e.g. +5, -10) if relationships change.
-      8. memoryUpdate: Update all memory fields based on new events. 'storyMemory' should append key points. 'inventory' should update if items gained/lost.
-      9. triggeredEventId: The ID of the scheduled event that was completed/triggered in this turn (or null).
-
-      Response must be valid JSON.
+      [OUTPUT SCHEMA]
+      Return valid JSON matching the schema.
+      - triggeredEventId: ID of event completed this turn (or null).
+      - memoryUpdate: Update all fields. CRITICAL: Compress 'storyMemory' if needed.
     `;
 
     return withModelFallback(modelName, TEXT_MODEL_FALLBACKS, async (model) => {
@@ -359,9 +429,6 @@ export const generateSceneImage = async (
     // ModelScope Integration
     if (modelScopeKey && (modelName === 'Qwen/Qwen-Image' || modelName === 'MusePublic/FLUX.1')) {
         try {
-            // NOTE: This fetch call assumes a proxy or backend if CORS is an issue, 
-            // but for a purely frontend demo we attempt direct call or assume the user has a proxy.
-            // ModelScope API structure varies; this is a generic implementation assumption.
             const response = await fetch(`https://modelscope.cn/api/v1/inference/text-to-image`, {
                 method: 'POST',
                 headers: {
@@ -384,33 +451,19 @@ export const generateSceneImage = async (
     // Gemini Image Generation
     return withModelFallback(modelName, IMAGE_MODEL_FALLBACKS, async (model) => {
         const shotPrompt = shotSize ? shotSize.replace(/_/g, ' ').toLowerCase() : 'cinematic shot';
-        // Strong negative prompting to prevent text
         const negativeConstraints = "NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY, NO WATERMARKS, NO SIGNATURES, NO LABELS, NO HUD, NO UI, NO SPEECH BUBBLES.";
         
         const finalPrompt = `${shotPrompt}, ${prompt}, style of ${style}, ${customStyle}. ${characterInfo ? `Visual details: ${characterInfo}` : ''}. High quality, detailed, 8k. ${negativeConstraints}`;
         
-        // Note: Reference image logic for Gemini is conceptual here as the API shape for image-to-image 
-        // via `generateContent` with image output is specific. 
-        // We use the text-to-image specialized model usually, but `generateContent` on Flash 2.0+ supports inputs.
-        
-        // For 'gemini-2.5-flash-image' specifically:
         const response = await ai.models.generateContent({
             model: model,
             contents: {
                 parts: [
-                    { text: finalPrompt },
-                    // If we had a reference image for style transfer, we would add it here:
-                    // ...(refImageBase64 ? [{ inlineData: { mimeType: 'image/jpeg', data: refImageBase64.split(',')[1] } }] : [])
+                    { text: finalPrompt }
                 ]
-            },
-            config: {
-                // responseMimeType is NOT supported for image models in this SDK version usually, 
-                // but we rely on the response structure.
             }
         });
 
-        // Parse response for image
-        // Iterate through parts to find the image
         for (const candidate of response.candidates || []) {
             for (const part of candidate.content.parts) {
                 if (part.inlineData && part.inlineData.mimeType.startsWith('image/')) {
@@ -486,8 +539,14 @@ export const generateSkillDescription = async (genre: StoryGenre, skillName: str
 export const parseStoryOutline = async (outline: string): Promise<any> => {
     const prompt = `
         Analyze this story outline: "${outline}".
-        Extract the key information into a JSON object with the following structure. Use Simplified Chinese for all string values (except enum keys).
+        Extract the key information into a JSON object. Use Simplified Chinese for all string values (except enum keys).
 
+        [IMPORTANT INSTRUCTION FOR PLOT BLUEPRINT]
+        1. **PRIORITY**: If the outline text contains explicit chapter breakdowns, tables of contents, or structured plot points (e.g. "Chapter 1: ...", "Part 1: ...", "First Arc: ..."), you **MUST EXTRACT** these existing chapters exactly as described into the "plotBlueprint" array. Do NOT invent new chapters if the user provided them.
+        2. **FALLBACK**: Only if the outline is a general summary without specific chapter structure should you creatively propose a new "plotBlueprint".
+        3. Ensure "keyCharacters" in the blueprint match names in "supportingCharacters" or "character".
+        
+        Output JSON Format:
         {
           "genre": "XIANXIA | WUXIA | ROMANCE | SUPERHERO | CYBERPUNK | FANTASY",
           "character": { 
@@ -501,15 +560,24 @@ export const parseStoryOutline = async (outline: string): Promise<any> => {
           "worldSettings": { "tone": "PEACEFUL | BATTLE | TENSE | EMOTIONAL | MYSTERIOUS | VICTORY", "isHarem": "boolean", "isAdult": "boolean", "hasSystem": "boolean" },
           "supportingCharacters": [
             { "name": "string", "role": "string", "gender": "male | female | other", "personality": "string", "appearance": "string", "category": "protagonist | supporting | villain | other" }
+          ],
+          "plotBlueprint": [
+             {
+               "title": "string",
+               "summary": "string",
+               "targetWordCount": "integer (approx 3000-5000)",
+               "keyEvents": "string (comma separated list of events)",
+               "keyCharacters": ["string (names of characters involved)"],
+               "pacing": "fast | standard | slow"
+             }
           ]
         }
 
         Requirements:
-        - Determine the most fitting "genre" from the enum list based on keywords. If unsure, use "FANTASY".
+        - Determine the most fitting "genre". If unsure, use "FANTASY".
         - "trait" should be a concise summary of the protagonist's personality and appearance.
-        - Extract any mention of skills or abilities into "skills". If none mentioned, return empty array.
-        - The 'category' for supporting characters must be one of 'supporting', 'villain', 'protagonist', or 'other'.
-        - The 'tone' must be exactly one of: 'PEACEFUL', 'BATTLE', 'TENSE', 'EMOTIONAL', 'MYSTERIOUS', 'VICTORY'.
+        - Extract any mention of skills into "skills".
+        - Identify key supporting characters.
         - Return ONLY the valid JSON object.
     `;
     const response = await ai.models.generateContent({

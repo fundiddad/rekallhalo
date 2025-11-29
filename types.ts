@@ -65,6 +65,9 @@ export type ImageModel =
 // New: Visual Effect Types
 export type VisualEffectType = 'none' | 'fire' | 'thunder' | 'heal' | 'darkness' | 'ice' | 'gold';
 
+// New: Narrative Perspective
+export type NarrativePerspective = 'third' | 'first' | 'second' | 'omniscient';
+
 export interface Skill {
   id: string;
   name: string;
@@ -77,6 +80,7 @@ export interface Character {
   name: string;
   trait: string;
   gender: 'male' | 'female' | 'other';
+  perspective?: NarrativePerspective; // New: Narrative Perspective
   avatar?: string; // Base64 image
   skills: Skill[]; // Added Skills
 }
@@ -124,6 +128,32 @@ export interface ScheduledEvent {
   triggeredTurn?: number; // The turn index when this happened
 }
 
+// New: Plot Chapter for Blueprint
+export interface PlotChapter {
+  id: string;
+  title: string;
+  targetWordCount: number;
+  summary: string;
+  keyCharacters: string[]; // Names of characters involved
+  keyEvents: string;
+  // New: Pacing
+  pacing?: 'fast' | 'standard' | 'slow';
+  // New: Advanced Completion Criteria
+  completionCriteria?: {
+      minKeyEvents?: number; // Minimum number of scheduled events triggered
+      minInteractions?: number; // Minimum number of interactions with keyCharacters
+  };
+  // New: Live Stats Tracking
+  trackedStats?: {
+      currentWordCount: number;
+      eventsTriggered: number;
+      interactionsCount: number;
+  };
+  // Progression Status
+  status?: 'pending' | 'active' | 'completed'; 
+  finishedTurnCount?: number; // The turn number when this chapter was completed
+}
+
 export interface StorySegmentVersion {
   text: string;
   choices: string[];
@@ -168,6 +198,7 @@ export interface GameContext {
   narrativeMode?: string; // Narrative structure ID (e.g. 'auto', 'structure-1')
   narrativeTechnique?: string; // New: Narrative technique ID (e.g. 'auto', 'tech-1')
   scheduledEvents: ScheduledEvent[]; // New: List of future/past events
+  plotBlueprint: PlotChapter[]; // New: Chapter-based plot constraints
 }
 
 export enum SaveType {
