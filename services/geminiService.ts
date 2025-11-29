@@ -1,5 +1,4 @@
 
-
 import { GoogleGenAI, Type, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { StoryGenre, Character, StorySegment, ImageSize, SupportingCharacter, StoryMood, generateUUID, WorldSettings, Skill, AvatarStyle, MemoryState, ImageModel, ShotSize, ScheduledEvent, PlotChapter } from '../types';
 import { WULIN_CONTEXT, WESTERN_FANTASY_CONTEXT, NARRATIVE_STRUCTURES, NARRATIVE_TECHNIQUES } from '../constants';
@@ -140,6 +139,13 @@ export const generateOpening = async (
     Perspective: ${character.perspective === 'first' ? "FIRST PERSON ('I'/'我')" : character.perspective === 'second' ? "SECOND PERSON ('You'/'你')" : character.perspective === 'omniscient' ? "OMNISCIENT (All-knowing)" : "THIRD PERSON (Standard Novel)"}
     
     Make sure the opening reflects this narrative style immediately.
+
+    [CHOICES PERSPECTIVE RULE - CRITICAL]
+    The text content of the 'choices' MUST match the selected perspective:
+    - If 'first' ('I'): Choices should use "I" or imply self-action. e.g., "I draw my sword." or "Ask him about the map."
+    - If 'second' ('You'): Choices should use "You" or Imperative. e.g., "Draw your sword."
+    - If 'third' ('He/She/Name'): Choices should use the character's name or He/She. e.g., "${character.name} draws his sword."
+    - If 'omniscient': Choices should describe the plot direction. e.g., "The hero draws his sword."
   `;
 
   let blueprintInstruction = "";
@@ -289,6 +295,13 @@ export const advanceStory = async (
       Structure: ${structure ? structure.name : 'Standard'}
       Technique: ${technique ? technique.name : 'Standard'}
       Perspective: ${character.perspective === 'first' ? "FIRST PERSON ('I'/'我')" : character.perspective === 'second' ? "SECOND PERSON ('You'/'你')" : character.perspective === 'omniscient' ? "OMNISCIENT" : "THIRD PERSON"}
+
+      [CHOICES PERSPECTIVE RULE - CRITICAL]
+      The text content of the 'choices' MUST match the selected perspective:
+      - If 'first' ('I'): Choices should use "I" or imply self-action. e.g., "I draw my sword." or "Ask him about the map."
+      - If 'second' ('You'): Choices should use "You" or Imperative. e.g., "Draw your sword."
+      - If 'third' ('He/She/Name'): Choices should use the character's name or He/She. e.g., "${character.name} draws his sword."
+      - If 'omniscient': Choices should describe the plot direction. e.g., "The hero draws his sword."
     `;
 
     // Filter Pending Events

@@ -1,6 +1,4 @@
 
-
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { GameState, GameContext, StoryGenre, StoryMood, generateUUID, SupportingCharacter } from '../../types';
 import { SmoothBackground } from '../SmoothBackground';
@@ -198,6 +196,17 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
                     targetWordCount: chapter.targetWordCount || 3000,
                     keyEvents: chapter.keyEvents || "",
                     keyCharacters: chapter.keyCharacters || [],
+                    pacing: chapter.pacing || 'standard',
+                    // Auto-initialize criteria
+                    completionCriteria: {
+                        minKeyEvents: 1,
+                        minInteractions: 1
+                    },
+                    trackedStats: {
+                        currentWordCount: 0,
+                        eventsTriggered: 0,
+                        interactionsCount: 0
+                    },
                     status: 'pending'
                 }));
 
