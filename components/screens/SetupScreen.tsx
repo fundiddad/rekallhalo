@@ -7,7 +7,8 @@ import * as GeminiService from '../../services/geminiService';
 
 // Import New Refactored Components
 import { CharacterEditModal, SkillEditModal } from '../setup/SetupEditModals';
-import { SetupPlotPanel, PlotBlueprintModal } from '../setup/SetupPlotPanel';
+import { SetupPlotPanel } from '../setup/SetupPlotPanel';
+import { PlotBlueprintModal } from '../setup/plot/PlotBlueprintModal';
 import { SetupProtagonistPanel } from '../setup/SetupProtagonistPanel';
 import { SetupWorldPanel } from '../setup/SetupWorldPanel';
 import { SetupCharactersPanel } from '../setup/SetupCharactersPanel';
@@ -36,6 +37,8 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
     
     // Plot Blueprint Modal State
     const [showPlotModal, setShowPlotModal] = useState(false);
+    const [plotModalChapterId, setPlotModalChapterId] = useState<string | null>(null);
+    const [plotModalViewMode, setPlotModalViewMode] = useState<'list' | 'graph'>('list');
 
     // Supporting Character State
     const [showCharModal, setShowCharModal] = useState(false);
@@ -381,7 +384,11 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
                 <SetupPlotPanel 
                     {...getPanelStyle(4)}
                     context={context}
-                    onOpenModal={() => setShowPlotModal(true)}
+                    onOpenModal={(chapterId, viewMode) => {
+                        setPlotModalChapterId(chapterId || null);
+                        setPlotModalViewMode(viewMode || 'list');
+                        setShowPlotModal(true);
+                    }}
                 />
 
             </div>
@@ -413,9 +420,14 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
 
             <PlotBlueprintModal 
                 isOpen={showPlotModal} 
-                onClose={() => setShowPlotModal(false)}
+                onClose={() => {
+                    setShowPlotModal(false);
+                    setPlotModalChapterId(null);
+                }}
                 context={context}
                 setContext={setContext}
+                initialChapterId={plotModalChapterId}
+                initialViewMode={plotModalViewMode}
             />
 
             {/* Start Game Progress Button */}

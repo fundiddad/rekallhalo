@@ -89,6 +89,7 @@ const App: React.FC = () => {
         {game.gameState === GameState.PLAYING && (
             <GameScreen 
                 context={game.context}
+                setContext={game.setContext}
                 bgImage={game.bgImage}
                 backgroundStyle={game.backgroundStyle}
                 battleAnim={game.battleAnim}
