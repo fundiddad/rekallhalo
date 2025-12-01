@@ -8,6 +8,7 @@ import {
     MemoryState
 } from '../types';
 import * as GeminiService from '../services/geminiService';
+import { StorageService } from '../services/storageService';
 import { getRandomBackground } from '../components/SmoothBackground';
 import { CHARACTER_ARCHETYPES } from '../constants';
 
@@ -33,6 +34,15 @@ const DEFAULT_CONTEXT: GameContext = {
     scheduledEvents: [],
     plotBlueprint: []
 };
+
+// Sound Effects
+const SOUNDS = {
+  click: new Audio('https://storage.googleapis.com/proud-boulder-354515/ai-fic-music/click.wav'),
+  hover: new Audio('https://storage.googleapis.com/proud-boulder-354515/ai-fic-music/hover.wav'),
+  progress: new Audio('https://storage.googleapis.com/proud-boulder-354515/ai-fic-music/progress.wav'),
+  confirm: new Audio('https://storage.googleapis.com/proud-boulder-354515/ai-fic-music/confirm.wav'),
+};
+
 
 export const useGameEngine = () => {
     // --- State: System ---
@@ -92,34 +102,61 @@ export const useGameEngine = () => {
     const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     
     // --- Sound Effects ---
-    const playSound = (type: 'click' | 'hover' | 'progress' | 'confirm') => {
+    const playSound = useCallback((type: keyof typeof SOUNDS) => {
         if (isMuted) return;
-        // Placeholder implementation
-    };
-    const playClickSound = () => playSound('click');
-    const playHoverSound = () => playSound('hover');
-    const playProgressSound = () => playSound('progress');
-    const playConfirmSound = () => playSound('confirm');
+        const originalSound = SOUNDS[type];
+        if(originalSound) {
+            // Clone node to allow overlapping sounds (important for rapid clicks/hovers)
+            const sound = originalSound.cloneNode() as HTMLAudioElement;
+            sound.volume = volume;
+            sound.play().catch(e => {
+                // Ignore autoplay errors or user interaction requirements
+                // console.warn('Sound play prevented:', e);
+            });
+        }
+    }, [isMuted, volume]);
+
+    const playClickSound = useCallback(() => playSound('click'), [playSound]);
+    const playHoverSound = useCallback(() => playSound('hover'), [playSound]);
+    const playProgressSound = useCallback(() => playSound('progress'), [playSound]);
+    const playConfirmSound = useCallback(() => playSound('confirm'), [playSound]);
+
 
     // --- Initialization ---
     useEffect(() => {
-        // Load settings and saves from localStorage
-        const loadedSaves = localStorage.getItem('protagonist_saves');
-        if (loadedSaves) setSavedGames(JSON.parse(loadedSaves));
-        
-        const loadedGallery = localStorage.getItem('protagonist_gallery');
-        if (loadedGallery) setGallery(JSON.parse(loadedGallery));
+        const init = async () => {
+            // Load settings from localStorage (Settings are small, fine for LS)
+            const loadedSettings = localStorage.getItem('protagonist_settings');
+            if (loadedSettings) {
+                const s = JSON.parse(loadedSettings);
+                setAiModel(s.aiModel || 'gemini-2.5-pro');
+                setImageModel(s.imageModel || 'gemini-2.5-flash-image');
+                setAvatarStyle(s.avatarStyle || 'anime');
+                setBackgroundStyle(s.backgroundStyle || 'anime');
+                if (s.volume !== undefined) setVolume(s.volume);
+                if (s.isMuted !== undefined) setIsMuted(s.isMuted);
+            }
 
-        const loadedSettings = localStorage.getItem('protagonist_settings');
-        if (loadedSettings) {
-            const s = JSON.parse(loadedSettings);
-            setAiModel(s.aiModel || 'gemini-2.5-pro');
-            setImageModel(s.imageModel || 'gemini-2.5-flash-image');
-            setAvatarStyle(s.avatarStyle || 'anime');
-            setBackgroundStyle(s.backgroundStyle || 'anime');
-            if (s.volume !== undefined) setVolume(s.volume);
-            if (s.isMuted !== undefined) setIsMuted(s.isMuted);
-        }
+            // Perform Migration from LS to IDB if needed
+            await StorageService.migrateFromLocalStorage();
+
+            // Load Saves and Gallery from IDB
+            try {
+                const saves = await StorageService.getAllSaves();
+                // Sort by timestamp desc
+                saves.sort((a, b) => b.timestamp - a.timestamp);
+                setSavedGames(saves);
+
+                const galleryItems = await StorageService.getAllGallery();
+                galleryItems.sort((a, b) => b.timestamp - a.timestamp);
+                setGallery(galleryItems);
+            } catch (e) {
+                console.error("Failed to load data from storage", e);
+                setError("无法加载存档数据，请检查浏览器存储权限");
+            }
+        };
+
+        init();
 
         // Initial Background
         setBgImage(getRandomBackground(backgroundStyle));
@@ -157,9 +194,17 @@ export const useGameEngine = () => {
             context: context,
             type: SaveType.SETUP
         };
+        
+        // Optimistic UI Update
         const newSaves = [save, ...savedGames];
         setSavedGames(newSaves);
-        localStorage.setItem('protagonist_saves', JSON.stringify(newSaves));
+        
+        // Persist
+        StorageService.saveGame(save).catch(e => {
+            console.error("Save setup failed", e);
+            setError("保存失败: " + e.message);
+        });
+
         toggleModal('saveNotification', true);
         setTimeout(() => toggleModal('saveNotification', false), 2000);
     };
@@ -174,39 +219,47 @@ export const useGameEngine = () => {
         };
         const newGallery = [newItem, ...gallery];
         setGallery(newGallery);
-        localStorage.setItem('protagonist_gallery', JSON.stringify(newGallery));
+        StorageService.saveGalleryItem(newItem).catch(console.error);
     };
 
     const deleteFromGallery = (id: string) => {
         const newGallery = gallery.filter(i => i.id !== id);
         setGallery(newGallery);
-        localStorage.setItem('protagonist_gallery', JSON.stringify(newGallery));
+        StorageService.deleteGalleryItem(id).catch(console.error);
     };
 
     const deleteSaveGame = (id: string) => {
         const newSaves = savedGames.filter(s => s.id !== id);
         setSavedGames(newSaves);
-        localStorage.setItem('protagonist_saves', JSON.stringify(newSaves));
+        StorageService.deleteGame(id).catch(console.error);
     };
 
     const deleteSession = (sessionId: string) => {
+        const sessionSaves = savedGames.filter(s => s.sessionId === sessionId);
+        const idsToDelete = sessionSaves.map(s => s.id);
         const newSaves = savedGames.filter(s => s.sessionId !== sessionId);
         setSavedGames(newSaves);
-        localStorage.setItem('protagonist_saves', JSON.stringify(newSaves));
+        StorageService.deleteGames(idsToDelete).catch(console.error);
     };
 
     const importSaveGame = (saves: SavedGame | SavedGame[]) => {
         const toImport = Array.isArray(saves) ? saves : [saves];
         let count = 0;
         const newSaves = [...savedGames];
+        const savesToAdd: SavedGame[] = [];
+
         toImport.forEach(s => {
             if (!newSaves.some(exist => exist.id === s.id)) {
                 newSaves.push(s);
+                savesToAdd.push(s);
                 count++;
             }
         });
-        setSavedGames(newSaves);
-        localStorage.setItem('protagonist_saves', JSON.stringify(newSaves));
+        
+        if (count > 0) {
+            setSavedGames(newSaves);
+            StorageService.saveGames(savesToAdd).catch(console.error);
+        }
         return count;
     };
 
@@ -235,7 +288,7 @@ export const useGameEngine = () => {
         setGameState(GameState.LANDING);
     };
 
-    const handleAutoPlanBlueprint = async (config?: { chapterCount: number, wordCountRange: [number, number], newCharCount: number }) => {
+    const handleAutoPlanBlueprint = async (config?: { chapterCount: number, wordCountRange: [number, number], newCharCount: number, newOrgCount: number, customGuidance?: string }) => {
         if (!context.character.name) {
             setError("请先在「主角档案」中填写主角姓名");
             setTimeout(() => setError(null), 3000);
@@ -267,17 +320,38 @@ export const useGameEngine = () => {
                 // User requirement: Affinity -10 to 10 (same as SetupScreen default)
                 const randomAffinity = Math.floor(Math.random() * 21) - 10; 
                 
-                // Random archetype if not present from AI
-                const randomArchetypeObj = CHARACTER_ARCHETYPES[Math.floor(Math.random() * CHARACTER_ARCHETYPES.length)];
-                const archetype = nc.archetype || randomArchetypeObj.name;
-                const archetypeDesc = nc.archetypeDescription || randomArchetypeObj.description;
+                let archetype = nc.archetype;
+                let archetypeDesc = nc.archetypeDescription;
+
+                // Fix: Ensure archetype is valid Chinese or empty for Orgs
+                if (nc.category === 'other' || nc.gender === 'organization') {
+                    archetype = undefined;
+                    archetypeDesc = undefined;
+                } else {
+                    // Check if archetype matches known Chinese ones
+                    const isValidArchetype = CHARACTER_ARCHETYPES.some(a => a.name === archetype);
+                    
+                    if (!isValidArchetype) {
+                        // If invalid (e.g. English), assign a random valid one
+                        const randomArchetypeObj = CHARACTER_ARCHETYPES[Math.floor(Math.random() * CHARACTER_ARCHETYPES.length)];
+                        archetype = randomArchetypeObj.name;
+                        // Keep AI description if present, otherwise use default
+                        if (!archetypeDesc) {
+                            archetypeDesc = randomArchetypeObj.description;
+                        }
+                    } else if (!archetypeDesc) {
+                        // Valid name but missing description, fill it
+                        const found = CHARACTER_ARCHETYPES.find(a => a.name === archetype);
+                        if (found) archetypeDesc = found.description;
+                    }
+                }
 
                 return {
                     id: generateUUID(),
                     name: nc.name,
                     role: nc.role,
                     gender: nc.gender || 'other',
-                    category: 'supporting',
+                    category: nc.category || 'supporting',
                     affinity: randomAffinity,
                     initialAffinity: randomAffinity,
                     personality: nc.personality || "AI 自动生成",
@@ -434,38 +508,55 @@ export const useGameEngine = () => {
             if (nextSegment.triggeredEventId) {
                 updatedEvents = updatedEvents.map(e => e.id === nextSegment.triggeredEventId ? { ...e, status: 'completed' } : e);
             }
-
-            setGeneratingImage(true);
-            GeminiService.generateSceneImage(
-                nextSegment.visualPrompt, 
-                ImageSize.SIZE_1K, 
-                backgroundStyle, 
-                "", 
-                customAvatarStyle, 
-                imageModel, 
-                modelScopeApiKey
-            ).then(img => {
-                setContext(prev => {
-                    const newHistory = prev.history.map(h => h.id === nextSegment.id ? { ...h, backgroundImage: img } : h);
-                    const newCurrent = prev.currentSegment?.id === nextSegment.id ? { ...prev.currentSegment, backgroundImage: img } : prev.currentSegment;
-                    return { ...prev, history: newHistory, currentSegment: newCurrent as any };
-                });
-                setBgImage(img);
-                if (autoSaveGallery) addToGallery(img, nextSegment.visualPrompt, backgroundStyle);
-                setGeneratingImage(false);
-            }).catch(() => setGeneratingImage(false));
-
-            const segmentWithChoice = { ...nextSegment, causedBy: choice };
             
-            setContext(prev => ({
-                ...prev,
-                history: [...history, segmentWithChoice],
-                currentSegment: segmentWithChoice,
-                supportingCharacters: updatedSupportingChars,
-                memories: nextSegment.newMemories || prev.memories,
-                scheduledEvents: updatedEvents,
-                lastUpdated: Date.now()
-            }));
+            const segmentWithChoice = { ...nextSegment, causedBy: choice };
+
+            setContext(prevContext => {
+                const newContext: GameContext = {
+                    ...prevContext,
+                    history: [...history, segmentWithChoice],
+                    currentSegment: segmentWithChoice,
+                    supportingCharacters: updatedSupportingChars,
+                    memories: nextSegment.newMemories || prevContext.memories,
+                    scheduledEvents: updatedEvents,
+                    lastUpdated: Date.now()
+                };
+        
+                // Auto-save logic
+                if (newContext.currentSegment) {
+                    const save: SavedGame = {
+                        id: generateUUID(),
+                        sessionId: newContext.sessionId,
+                        storyName: newContext.storyName,
+                        storyId: newContext.currentSegment.id,
+                        parentId: newContext.history.length > 1 ? newContext.history[newContext.history.length - 2].id : undefined,
+                        timestamp: Date.now(),
+                        genre: newContext.genre,
+                        characterName: newContext.character.name,
+                        summary: newContext.currentSegment.text.substring(0, 50) + "...",
+                        location: newContext.currentSegment.location,
+                        context: newContext,
+                        type: SaveType.AUTO,
+                        choiceText: newContext.currentSegment.causedBy,
+                        metaData: {
+                            turnCount: newContext.history.length,
+                            totalSkillLevel: newContext.character.skills.reduce((acc, s) => acc + s.level, 0),
+                        }
+                    };
+        
+                    setSavedGames(prevSaves => {
+                        const alreadySaved = prevSaves.some(s => s.storyId === save.storyId && s.sessionId === save.sessionId);
+                        if (alreadySaved) return prevSaves;
+                        
+                        StorageService.saveGame(save).catch(e => {
+                            console.error("Auto-save failed", e);
+                        });
+                        return [save, ...prevSaves];
+                    });
+                }
+                
+                return newContext;
+            });
 
             setAutoSaveState('saving');
             setTimeout(() => setAutoSaveState('complete'), 1000);
@@ -481,6 +572,20 @@ export const useGameEngine = () => {
 
     const handleManualSave = () => {
         if (!context.currentSegment) return;
+
+        // NEW: Check for ANY existing save for this segment (Auto or Manual)
+        const alreadySaved = savedGames.some(s => 
+            s.sessionId === context.sessionId && 
+            s.storyId === context.currentSegment?.id
+        );
+
+        if (alreadySaved) {
+            // Trigger "Warning" notification instead of "Success"
+            toggleModal('saveExistingNotification', true);
+            setTimeout(() => toggleModal('saveExistingNotification', false), 2000);
+            return; 
+        }
+
         const save: SavedGame = {
             id: generateUUID(),
             sessionId: context.sessionId,
@@ -494,17 +599,25 @@ export const useGameEngine = () => {
             location: context.currentSegment.location,
             context: context,
             type: SaveType.MANUAL,
-            choiceText: context.currentSegment.causedBy
+            choiceText: context.currentSegment.causedBy,
+            metaData: {
+                turnCount: context.history.length,
+                totalSkillLevel: context.character.skills.reduce((acc, s) => acc + s.level, 0),
+            }
         };
         const newSaves = [save, ...savedGames];
         setSavedGames(newSaves);
-        localStorage.setItem('protagonist_saves', JSON.stringify(newSaves));
+        
+        StorageService.saveGame(save).catch(e => {
+            console.error("Save failed", e);
+            setError("存档失败，可能是存储空间已满");
+        });
+
         toggleModal('saveNotification', true);
         setTimeout(() => toggleModal('saveNotification', false), 2000);
     };
 
     const handleBackToHome = () => {
-        handleManualSave();
         setGameState(GameState.LANDING);
     };
 
@@ -602,7 +715,7 @@ export const useGameEngine = () => {
         storyFontSize, handleSetStoryFontSize,
         storyFontFamily, handleSetStoryFontFamily,
         autoSaveGallery, handleSetAutoSaveGallery,
-        playClickSound, playHoverSound, playConfirmSound,
+        playClickSound, playHoverSound, playConfirmSound, playProgressSound,
         setupTempData, setSetupTempData,
         handleStartNewGameSetup, handleStartGame, handleSaveSetup, handleAutoPlanBlueprint, handleAbortGame,
         handleBackToHome, handleManualSave, handleChoice, handleUseSkill, handleSummarizeMemory,

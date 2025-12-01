@@ -84,19 +84,28 @@ const toChineseNum = (num: number) => {
 };
 
 // --- Chapter Grouping Component ---
-const ChapterSection = ({ title, segments, fontSize, fontFamily, defaultOpen = false }: { title: string, segments: any[], fontSize: number, fontFamily?: string, defaultOpen?: boolean }) => {
+const ChapterSection = ({ title, segments, fontSize, fontFamily, defaultOpen = false, onExportChapter }: { title: string, segments: any[], fontSize: number, fontFamily?: string, defaultOpen?: boolean, onExportChapter: () => void }) => {
     const [isOpen, setIsOpen] = useState(defaultOpen);
 
     return (
         <div className="border-b border-stone-200 last:border-0">
-            <button 
+            <div 
+                className="w-full flex items-center gap-2 p-3 bg-stone-100 hover:bg-stone-200 transition-colors text-left group cursor-pointer"
                 onClick={() => setIsOpen(!isOpen)}
-                className="w-full flex items-center gap-2 p-3 bg-stone-100 hover:bg-stone-200 transition-colors text-left group"
             >
                 <span className={`transform transition-transform text-stone-400 text-xs ${isOpen ? 'rotate-90' : ''}`}>➤</span>
                 <span className="font-bold text-sm text-stone-700 group-hover:text-purple-700">{title}</span>
-                <span className="text-[10px] text-stone-400 font-mono ml-auto">{segments.length} 幕</span>
-            </button>
+                <div className="ml-auto flex items-center gap-3">
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onExportChapter(); }}
+                        className="text-[10px] text-gray-400 hover:text-purple-600 font-bold transition-colors underline decoration-dotted underline-offset-2 opacity-0 group-hover:opacity-100"
+                        title="导出本章内容"
+                    >
+                        导出本章
+                    </button>
+                    <span className="text-[10px] text-stone-400 font-mono">{segments.length} 幕</span>
+                </div>
+            </div>
             
             {isOpen && (
                 <div className="bg-white/50 space-y-6 p-4 border-t border-stone-100">
@@ -136,25 +145,38 @@ const ChapterSection = ({ title, segments, fontSize, fontFamily, defaultOpen = f
     );
 };
 
-export const HistoryModal = ({ history, onClose, fontSize, fontFamily, plotBlueprint }: { history: StorySegment[], onClose: () => void, fontSize: number, fontFamily?: string, plotBlueprint?: PlotChapter[] }) => {
+export const HistoryModal = ({ history, onClose, fontSize, fontFamily, plotBlueprint, storyName }: { history: StorySegment[], onClose: () => void, fontSize: number, fontFamily?: string, plotBlueprint?: PlotChapter[], storyName?: string }) => {
     
     const totalWords = history.reduce((acc, cur) => acc + (cur.text?.length || 0), 0);
 
-    const handleExport = () => {
-        const title = `主角光环 - 剧情回顾 (${new Date().toLocaleDateString()})`;
-        const mdContent = `# ${title}\n\n` + history.map((h, i) => {
+    const generateMarkdown = (segments: StorySegment[], title: string) => {
+        return `# ${title}\n\n` + segments.map((h, i) => {
             const userPart = h.causedBy ? `> **我**: ${h.causedBy}\n\n` : '';
             return `## 第${toChineseNum(i + 1)}幕\n**角色**: ${h.activeCharacterName || '未知'}\n\n${userPart}${h.text}\n`
         }).join('\n---\n\n');
-        
-        const blob = new Blob([mdContent], { type: 'text/markdown;charset=utf-8' });
+    };
+
+    const downloadMarkdown = (content: string, filename: string) => {
+        const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `story_history_${new Date().toISOString().slice(0,10)}.md`;
+        link.download = filename;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+    };
+
+    const handleExport = () => {
+        const title = `主角光环 - ${storyName || '剧情回顾'} (${new Date().toLocaleDateString()})`;
+        const mdContent = generateMarkdown(history, title);
+        const safeStoryName = (storyName || 'story').replace(/[^a-z0-9_\u4e00-\u9fa5]/gi, '_');
+        downloadMarkdown(mdContent, `${safeStoryName}_history_${new Date().toISOString().slice(0,10)}.md`);
+    };
+
+    const handleExportChapter = (segments: StorySegment[], chapterTitle: string) => {
+        const mdContent = generateMarkdown(segments, chapterTitle);
+        downloadMarkdown(mdContent, `chapter_${chapterTitle}_${new Date().toISOString().slice(0,10)}.md`);
     };
 
     // Group History by Plot Blueprint
@@ -216,9 +238,9 @@ export const HistoryModal = ({ history, onClose, fontSize, fontFamily, plotBluep
                          <button 
                             onClick={handleExport} 
                             className="text-xs bg-white hover:bg-stone-200 text-gray-600 hover:text-gray-900 px-3 py-1.5 rounded border border-stone-300 transition-colors flex items-center gap-1 shadow-sm"
-                            title="将所有剧情导出为Markdown文件"
+                            title={`导出《${storyName || '故事'}》全部剧情`}
                         >
-                            <span></span> 导出 Markdown
+                            <span></span> 导出全部
                         </button>
                         <button onClick={onClose} className="text-gray-400 hover:text-red-500 text-lg px-2 font-bold">✕</button>
                     </div>
@@ -232,6 +254,7 @@ export const HistoryModal = ({ history, onClose, fontSize, fontFamily, plotBluep
                             fontSize={fontSize} 
                             fontFamily={fontFamily}
                             defaultOpen={group.isLast} // Open the last (active) chapter by default
+                            onExportChapter={() => handleExportChapter(group.segments, group.title)}
                         />
                     ))}
                 </div>
@@ -308,7 +331,7 @@ export const CharacterModal = ({ context, character, onClose, onOpenRegenAvatar,
                         <div>
                             <h4 className="text-[10px] text-purple-700 uppercase tracking-wider mb-1 font-bold flex items-center gap-2">
                                 <span className="w-1.5 h-1.5 bg-purple-500 rounded-full"></span> 
-                                {isProtagonist ? '性格与特质' : '性格特征'}
+                                {isProtagonist ? '性格与特质' : (supportChar?.category === 'other' ? '组织宗旨/风格' : '性格特征')}
                             </h4>
                             <p className="text-xs text-gray-700 bg-white p-3 rounded border border-stone-200 shadow-sm leading-relaxed">{traitText}</p>
                         </div>
@@ -316,7 +339,7 @@ export const CharacterModal = ({ context, character, onClose, onOpenRegenAvatar,
                         {appearanceText && (
                             <div>
                                 <h4 className="text-[10px] text-purple-700 uppercase tracking-wider mb-1 font-bold flex items-center gap-2">
-                                    <span className="w-1.5 h-1.5 bg-purple-500 rounded-full"></span> 外貌特征
+                                    <span className="w-1.5 h-1.5 bg-purple-500 rounded-full"></span> {supportChar?.category === 'other' ? '组织规模/据点' : '外貌特征'}
                                 </h4>
                                 <p className="text-xs text-gray-700 bg-white p-3 rounded border border-stone-200 shadow-sm leading-relaxed">{appearanceText}</p>
                             </div>
@@ -325,7 +348,7 @@ export const CharacterModal = ({ context, character, onClose, onOpenRegenAvatar,
                         {supportChar && supportChar.archetype && (
                             <div>
                                 <h4 className="text-[10px] text-indigo-700 uppercase tracking-wider mb-1 font-bold flex items-center gap-2">
-                                    <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full"></span> 角色原型
+                                    <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full"></span> {supportChar.category === 'other' ? '组织类型' : '角色原型'}
                                 </h4>
                                 <div className="bg-indigo-50 p-3 rounded border border-indigo-100 shadow-sm">
                                     <div className="font-bold text-indigo-800 text-xs mb-0.5">{supportChar.archetype}</div>
@@ -357,7 +380,7 @@ export const CharacterModal = ({ context, character, onClose, onOpenRegenAvatar,
                         {supportChar && (
                             <div>
                                 <h4 className="text-[10px] text-pink-700 uppercase tracking-wider mb-1 font-bold flex items-center gap-2">
-                                    <span className="w-1.5 h-1.5 bg-pink-500 rounded-full"></span> 情感羁绊
+                                    <span className="w-1.5 h-1.5 bg-pink-500 rounded-full"></span> {supportChar.category === 'other' ? '友好度' : '情感羁绊'}
                                 </h4>
                                 <div className="flex items-center gap-3 bg-white p-3 rounded border border-stone-200 shadow-sm">
                                     <div className="flex-1">

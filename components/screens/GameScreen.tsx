@@ -183,32 +183,32 @@ const getNamePlateStyles = (genre: StoryGenre, isProtagonist: boolean) => {
         switch (genre) {
             case StoryGenre.XIANXIA: case StoryGenre.WUXIA:
                 return {
-                    container: "bg-[#1c1917]/90 border border-[#a16207]/60 shadow-[0_0_20px_rgba(161,98,7,0.4)] backdrop-blur-md px-5 py-2 rounded-r-xl border-l-4 border-l-[#a16207] min-w-[120px]",
+                    container: "bg-[#1c1917]/75 border border-[#a16207]/60 shadow-[0_0_20px_rgba(161,98,7,0.4)] backdrop-blur-md px-5 py-2 rounded-r-xl border-l-4 border-l-[#a16207] min-w-[120px]",
                     name: "text-amber-100 font-serif tracking-widest text-shadow-sm",
                     role: "bg-[#451a03] text-amber-500 border border-amber-900/50 shadow-inner"
                 };
             case StoryGenre.CYBERPUNK:
                 return {
-                    container: "bg-black/90 border border-cyan-500/60 shadow-[0_0_20px_rgba(6,182,212,0.4)] backdrop-blur-md px-5 py-2 skew-x-[-10deg] border-l-4 border-l-cyan-400 min-w-[120px]",
+                    container: "bg-black/75 border border-cyan-500/60 shadow-[0_0_20px_rgba(6,182,212,0.4)] backdrop-blur-md px-5 py-2 skew-x-[-10deg] border-l-4 border-l-cyan-400 min-w-[120px]",
                     name: "text-cyan-50 font-mono tracking-tighter skew-x-[10deg] drop-shadow-[0_0_5px_rgba(6,182,212,0.8)]",
                     role: "bg-cyan-950 text-cyan-400 border border-cyan-700/50 skew-x-[10deg]"
                 };
             case StoryGenre.ROMANCE:
                 return {
-                    container: "bg-white/95 border border-pink-300 shadow-[0_0_20px_rgba(249,168,212,0.5)] backdrop-blur-md px-6 py-2 rounded-[24px] min-w-[120px]",
+                    container: "bg-white/80 border border-pink-300 shadow-[0_0_20px_rgba(249,168,212,0.5)] backdrop-blur-md px-6 py-2 rounded-[24px] min-w-[120px]",
                     name: "text-pink-600 font-sans tracking-wide",
                     role: "bg-pink-50 text-pink-400 border border-pink-200"
                 };
             default:
                 return {
-                    container: "bg-slate-900/90 border border-indigo-500/50 shadow-[0_0_20px_rgba(99,102,241,0.4)] backdrop-blur-md px-5 py-2 rounded-lg border-l-4 border-l-indigo-500 min-w-[120px]",
+                    container: "bg-slate-900/75 border border-indigo-500/50 shadow-[0_0_20px_rgba(99,102,241,0.4)] backdrop-blur-md px-5 py-2 rounded-lg border-l-4 border-l-indigo-500 min-w-[120px]",
                     name: "text-indigo-50 font-sans tracking-wide",
                     role: "bg-indigo-950 text-indigo-400 border border-indigo-800/50"
                 };
         }
     } else {
         return {
-            container: "bg-stone-900/90 border border-stone-600/50 shadow-lg backdrop-blur-md px-4 py-2 rounded-lg min-w-[100px]",
+            container: "bg-stone-900/75 border border-stone-600/50 shadow-lg backdrop-blur-md px-4 py-2 rounded-lg min-w-[100px]",
             name: "text-stone-200 font-sans",
             role: "bg-stone-800 text-stone-400 border border-stone-700"
         };
@@ -306,6 +306,53 @@ export const GameScreen: React.FC<GameScreenProps> = (props) => {
     const [inputPage, setInputPage] = useState<0 | 1>(0);
     const chatEndRef = useRef<HTMLDivElement>(null);
     const sideToolsRef = useRef<HTMLDivElement>(null);
+    const audioRef = useRef<HTMLAudioElement>(null);
+
+    // BGM Mapping
+    const musicMap: Record<StoryMood, string> = {
+        [StoryMood.PEACEFUL]: 'https://storage.googleapis.com/proud-boulder-354515/ai-fic-music/peaceful.mp3',
+        [StoryMood.BATTLE]: 'https://storage.googleapis.com/proud-boulder-354515/ai-fic-music/battle.mp3',
+        [StoryMood.TENSE]: 'https://storage.googleapis.com/proud-boulder-354515/ai-fic-music/tense.mp3',
+        [StoryMood.EMOTIONAL]: 'https://storage.googleapis.com/proud-boulder-354515/ai-fic-music/emotional.mp3',
+        [StoryMood.MYSTERIOUS]: 'https://storage.googleapis.com/proud-boulder-354515/ai-fic-music/mysterious.mp3',
+        [StoryMood.VICTORY]: 'https://storage.googleapis.com/proud-boulder-354515/ai-fic-music/victory.mp3',
+    };
+
+    // BGM Effect - Refined
+    const activeMoodRef = useRef<StoryMood | null>(null);
+
+    useEffect(() => {
+        const audio = audioRef.current;
+        if (!audio) return;
+
+        // Apply volume/mute state
+        audio.volume = volume;
+        audio.muted = isMuted;
+
+        const targetMood = context.currentSegment?.mood || StoryMood.PEACEFUL;
+        const targetSrc = musicMap[targetMood];
+
+        // Only switch tracks if mood changes (avoid string comparison issues on src property)
+        if (activeMoodRef.current !== targetMood) {
+            if (targetSrc) {
+                audio.src = targetSrc;
+                audio.load();
+                const playPromise = audio.play();
+                if (playPromise !== undefined) {
+                    playPromise.catch(e => {
+                        // Silent catch for autoplay blocks, will be handled by user interaction later
+                        // console.warn("BGM Autoplay prevented:", e);
+                    });
+                }
+                activeMoodRef.current = targetMood;
+            }
+        } else {
+            // Ensure playback is active if it should be
+            if (audio.paused && !isMuted && volume > 0) {
+                audio.play().catch(() => {});
+            }
+        }
+    }, [context.currentSegment?.mood, volume, isMuted]);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -332,7 +379,7 @@ export const GameScreen: React.FC<GameScreenProps> = (props) => {
             newSuggestions = context.character.skills.map(s => ({ label: s.name, value: `(发动技能) ${s.name}: ${s.description}`, type: 'skill' }));
         } else if (lastChars.endsWith("道具") || lastChars.endsWith("物品") || lastChars.endsWith("背包") || lastChars.endsWith("#")) {
             const invText = context.memories.inventory || "";
-            const lines = invText.split(/[\n;]/).map(s => s.trim()).filter(s => s.length > 0 && !s.includes("暂无"));
+            const lines = invText.split(/[\x00-\x20;]/).map(s => s.trim()).filter(s => s.length > 0 && !s.includes("暂无"));
             newSuggestions = lines.map(line => ({ label: line, value: `使用 ${line}`, type: 'item' }));
         } else if (lastChars.endsWith("地点") || lastChars.endsWith("前往")) {
             const currentLoc = context.currentSegment?.location || "未知区域";
@@ -413,6 +460,11 @@ export const GameScreen: React.FC<GameScreenProps> = (props) => {
     };
     const activeCharDisplay = getActiveCharacterDisplay();
     const displayImage = segment.backgroundImage ? segment.backgroundImage : (bgImage || getSmartBackground(context.genre, segment.mood, backgroundStyle as any));
+    
+    // Resolve location string for display
+    const currentLocation = context.currentSegment?.location || segment.location || "";
+    const namePlateText = currentLocation && activeCharDisplay.name ? `${currentLocation} · ${activeCharDisplay.name}` : activeCharDisplay.name;
+
     const getThemeStyles = (genre: StoryGenre) => {
         const inputBase = "transition-all outline-none";
         const transparentOverride = !showStoryPanelBackground ? "!bg-transparent !border-none !shadow-none !backdrop-blur-none" : "";
@@ -576,6 +628,37 @@ export const GameScreen: React.FC<GameScreenProps> = (props) => {
     </div>
     );
 
+    const getBubbleStyles = (charName: string): { border: string; bg: string; shadow?: string; text?: string } | null => {
+        const protagonist = context.character;
+        // Check protagonist
+        if (charName === protagonist.name || charName === '我' || charName.includes(protagonist.name)) {
+             return { border: 'border-amber-500/50', bg: 'bg-amber-950/40 shadow-[0_0_15px_rgba(245,158,11,0.1)]', text: 'text-amber-100' };
+        }
+        
+        const npc = context.supportingCharacters.find(c => charName.includes(c.name));
+        if (npc) {
+            const affinity = npc.affinity || 0;
+            
+            // Villain / Nemesis
+            if (npc.category === 'villain' || affinity <= -30) {
+                return { border: 'border-red-600/60', bg: 'bg-red-950/50 shadow-[0_0_15px_rgba(220,38,38,0.15)]', text: 'text-red-100' };
+            }
+            // Hostile
+            if (affinity < -5) {
+                return { border: 'border-orange-500/50', bg: 'bg-orange-950/40', text: 'text-orange-200' };
+            }
+            // Soulmate / Intimate
+            if (affinity >= 50) {
+                return { border: 'border-pink-500/60', bg: 'bg-pink-950/40 shadow-[0_0_15px_rgba(236,72,153,0.15)]', text: 'text-pink-100' };
+            }
+            // Friendly
+            if (npc.category === 'protagonist' || affinity >= 10) {
+                return { border: 'border-cyan-500/50', bg: 'bg-cyan-950/40', text: 'text-cyan-100' };
+            }
+        }
+        return null; 
+    }
+
     const renderChoices = (isChatMode: boolean) => (
         <div className={`grid grid-cols-1 md:grid-cols-2 gap-2 ${isChatMode ? 'w-full max-w-4xl mx-auto' : ''}`}>
             {segment.choices.map((choice, idx) => {
@@ -643,19 +726,8 @@ export const GameScreen: React.FC<GameScreenProps> = (props) => {
         </div>
     );
 
-    const getBubbleStyles = (charName: string) => {
-        const protagonist = context.character;
-        if (charName === protagonist.name || charName === '我' || charName.includes(protagonist.name)) return { border: 'border-amber-500/50', bg: 'bg-amber-950/30' };
-        const npc = context.supportingCharacters.find(c => charName.includes(c.name));
-        if (npc) {
-            if (npc.category === 'villain' || (npc.affinity || 0) <= -20) return { border: 'border-red-500/50', bg: 'bg-red-950/30' };
-            if (npc.category === 'protagonist' || (npc.affinity || 0) >= 30) return { border: 'border-emerald-500/50', bg: 'bg-emerald-950/30' };
-        }
-        return null; 
-    }
-
     return (
-      <div className={`relative w-full h-screen overflow-hidden bg-black select-none ${battleAnim || ''}`}>
+      <div className={`relative w-full h-full overflow-hidden bg-black select-none ${battleAnim || ''} animate-fade-in`}>
         <SmoothBackground src={displayImage} shouldBlur={shouldBlurBackground} brightness={isUiVisible ? 0.6 : 1.0} position="center" shotType={currentShotType} />
         <VisualEffectsLayer type={visualEffect} onComplete={() => setVisualEffect('none')} />
         {tooltipData && <EntityTooltipRenderer info={tooltipData.info} rect={tooltipData.rect} />}
@@ -669,6 +741,7 @@ export const GameScreen: React.FC<GameScreenProps> = (props) => {
             setContext={setContext}
             initialViewMode="graph"
         />
+        <audio ref={audioRef} loop autoPlay />
 
         <div className={`absolute inset-0 z-10 cursor-pointer transition-opacity ${isUiVisible ? 'block' : 'hidden'}`} onClick={() => setIsUiVisible(false)} title="点击隐藏界面 (沉浸模式)" />
         {generatingImage && ( <div className="absolute top-20 right-4 z-20 bg-black/40 backdrop-blur px-3 py-1 rounded-full flex items-center gap-2 border border-white/10 animate-pulse"> <span className="w-2 h-2 bg-purple-400 rounded-full"></span> <span className="text-[10px] text-white/80">具象化重构中...</span> </div> )}
@@ -711,7 +784,10 @@ export const GameScreen: React.FC<GameScreenProps> = (props) => {
                     <GenreAvatar avatar={activeCharDisplay.avatar || undefined} name={activeCharDisplay.name} genre={context.genre} isProtagonist={activeCharDisplay.isProtagonist} onClick={() => { playClickSound(); onOpenCharacterModal(activeCharDisplay.id || undefined); }} size="lg" />
                     <div className="flex items-stretch gap-2 pb-1 relative z-10 -ml-3">
                         <div className={nameStyles.container}>
-                            <div className="flex items-center gap-2"><span className={`text-lg ${nameStyles.name}`}>{activeCharDisplay.name}</span>{activeCharDisplay.role && <span className={`text-[10px] px-1.5 py-0.5 rounded ${nameStyles.role}`}>{activeCharDisplay.role}</span>}</div>
+                            <div className="flex items-center gap-2">
+                                <span className={`text-lg ${nameStyles.name}`}>{namePlateText}</span>
+                                {activeCharDisplay.role && <span className={`text-[10px] px-1.5 py-0.5 rounded ${nameStyles.role}`}>{activeCharDisplay.role}</span>}
+                            </div>
                             {!activeCharDisplay.isProtagonist && activeCharDisplay.affinity !== undefined && (<div className="flex items-center gap-2 mt-1 bg-black/20 rounded-full px-2 py-0.5 border border-white/5"><span className="text-[10px] text-pink-400 font-bold">♥ {activeCharDisplay.affinity}</span><div className="h-1.5 w-16 bg-gray-700 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-pink-600 to-pink-400 shadow-[0_0_5px_rgba(236,72,153,0.5)] transition-all duration-500" style={{ width: `${Math.min(Math.max(((activeCharDisplay.affinity + 50) / 100) * 100, 0), 100)}%` }} /></div></div>)}
                         </div>
                     </div>
@@ -753,8 +829,15 @@ export const GameScreen: React.FC<GameScreenProps> = (props) => {
                             const charAvatar = isProtagonistSpeaking ? protagonist.avatar : (context.supportingCharacters.find(c => segName.includes(c.name))?.avatar);
                             const supportingChar = !isProtagonistSpeaking ? context.supportingCharacters.find(c => segName.includes(c.name)) : null;
                             const hasVersions = seg.versions && seg.versions.length > 1;
+                            
+                            // Updated Bubble Styles call
                             const factionStyle = getBubbleStyles(segName);
-                            const bubbleContainerClass = factionStyle ? `border ${factionStyle.border} ${factionStyle.bg}` : `${styles.container}`;
+                            const bubbleContainerClass = factionStyle 
+                                ? `border ${factionStyle.border} ${factionStyle.bg} ${factionStyle.shadow || ''}` 
+                                : `${styles.container}`;
+                            
+                            const textColorClass = factionStyle?.text ? factionStyle.text : '';
+
                             return (
                                 <div key={seg.id} className="flex flex-col gap-4">
                                     {isUserCaused && (<div className="flex justify-end animate-fade-in-up" onClick={(e) => e.stopPropagation()}><div className="max-w-[80%] bg-stone-200 text-gray-800 p-4 rounded-2xl shadow-md border border-stone-300 relative"><div className="text-sm font-sans whitespace-pre-wrap select-text cursor-text">{seg.causedBy}</div></div></div>)}
@@ -765,7 +848,7 @@ export const GameScreen: React.FC<GameScreenProps> = (props) => {
                                                  <span className={`text-xs font-bold ${styles.accent}`}>{segName}</span>
                                                  {supportingChar && supportingChar.affinity !== undefined && (<div className="flex items-center gap-1 ml-2 bg-black/20 px-1.5 py-0.5 rounded-full"><span className="text-[10px] text-pink-500 font-bold">♥ {supportingChar.affinity}</span><div className="w-8 h-1 bg-black/20 rounded-full overflow-hidden"><div className="h-full bg-pink-500 transition-all" style={{width: `${Math.min(Math.max(((supportingChar.affinity + 50) / 100) * 100, 0), 100)}%`}} /></div></div>)}
                                              </div>
-                                             <div className={`${styles.font} leading-relaxed mb-2 select-text cursor-text pointer-events-auto`} onMouseDown={(e) => e.stopPropagation()} style={{ fontSize: `${storyFontSize}px`, fontFamily: storyFontFamily }}>{isCurrent ? ( <TypingText text={seg.text} speed={typingSpeed === 0 ? 0 : typingSpeed} onComplete={() => setTextTypingComplete(true)} instant={typingSpeed === 0} context={context} onHoverEntity={handleHoverEntity} /> ) : ( <span>{seg.text}</span> )}</div>
+                                             <div className={`${styles.font} ${textColorClass} leading-relaxed mb-2 select-text cursor-text pointer-events-auto`} onMouseDown={(e) => e.stopPropagation()} style={{ fontSize: `${storyFontSize}px`, fontFamily: storyFontFamily }}>{isCurrent ? ( <TypingText text={seg.text} speed={typingSpeed === 0 ? 0 : typingSpeed} onComplete={() => setTextTypingComplete(true)} instant={typingSpeed === 0} context={context} onHoverEntity={handleHoverEntity} /> ) : ( <span>{seg.text}</span> )}</div>
                                              <div className="mt-2 pt-2 border-t border-white/5 flex items-center opacity-50 text-[9px] font-mono"><span>{seg.text.length}字 / ≈{Math.round(seg.text.length * 1.3)} tokens</span></div>
                                              {hasVersions && (<div className="absolute -bottom-3 right-0 bg-black/80 backdrop-blur text-white text-[10px] rounded-full px-2 py-0.5 border border-white/20 flex items-center gap-2 shadow-sm z-30 cursor-pointer"><button onClick={(e) => { e.stopPropagation(); handleSwitchVersion(seg.id, 'prev'); }} className="hover:text-purple-400 px-1 font-bold">‹</button><span className="font-mono select-none">{(seg.currentVersionIndex || 0) + 1}/{seg.versions?.length}</span><button onClick={(e) => { e.stopPropagation(); handleSwitchVersion(seg.id, 'next'); }} className="hover:text-purple-400 px-1 font-bold">›</button></div>)}
                                          </div>

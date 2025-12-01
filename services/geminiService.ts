@@ -2,7 +2,7 @@
 import { GoogleGenAI, Type, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { StoryGenre, Character, StorySegment, ImageSize, SupportingCharacter, StoryMood, generateUUID, WorldSettings, Skill, AvatarStyle, MemoryState, ImageModel, ShotSize, ScheduledEvent, PlotChapter } from '../types';
 // FIX: Corrected typo from NATIVE_STRUCTURES to NARRATIVE_STRUCTURES
-import { WULIN_CONTEXT, WESTERN_FANTASY_CONTEXT, NARRATIVE_STRUCTURES, NARRATIVE_TECHNIQUES } from '../constants';
+import { WULIN_CONTEXT, WESTERN_FANTASY_CONTEXT, NARRATIVE_STRUCTURES, NARRATIVE_TECHNIQUES, CHARACTER_ARCHETYPES } from '../constants';
 
 // Initialize client with the env key.
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -215,8 +215,11 @@ export const generateOpening = async (
     Traits: ${character.trait}
     Skills: ${character.skills.map(s => `${s.name} (${s.type})`).join(', ')}
 
-    [SUPPORTING CHARACTERS]
-    ${supportingCharacters.map(c => `- ${c.name} (${c.role}): ${c.personality || 'Unknown'}`).join('\n')}
+    [SUPPORTING CHARACTERS / FACTIONS]
+    ${supportingCharacters.map(c => {
+        const isOrg = c.category === 'other';
+        return `- ${c.name} (${isOrg ? 'Organization/Faction' : c.role}): ${c.personality || 'Unknown'}`;
+    }).join('\n')}
 
     ${narrativeInstruction}
     ${blueprintInstruction}
@@ -310,9 +313,10 @@ export const advanceStory = async (
         return isKey || isActive;
     }).slice(0, 8); 
 
-    const charListString = relevantChars.map(c => 
-        `- ${c.name} (${c.role}, Aff:${c.affinity||0}, Gender:${c.gender})`
-    ).join('\n');
+    const charListString = relevantChars.map(c => {
+        const isOrg = c.category === 'other';
+        return `- ${c.name} (${isOrg ? 'Organization/Faction' : c.role}, Aff:${c.affinity||0}, Gender:${c.gender})`;
+    }).join('\n');
     
     const structure = NARRATIVE_STRUCTURES.find(s => s.id === narrativeMode);
     const technique = NARRATIVE_TECHNIQUES.find(t => t.id === narrativeTechnique);
@@ -517,7 +521,7 @@ export const autoPlanBlueprint = async (
     outline: string,
     existingCharacters: SupportingCharacter[] = [],
     existingChapters: PlotChapter[] = [],
-    config: { chapterCount: number, wordCountRange: [number, number], newCharCount: number } = { chapterCount: 3, wordCountRange: [3000, 5000], newCharCount: 3 },
+    config: { chapterCount: number, wordCountRange: [number, number], newCharCount: number, newOrgCount: number, customGuidance?: string } = { chapterCount: 3, wordCountRange: [3000, 5000], newCharCount: 3, newOrgCount: 1 },
     narrativeMode?: string,
     narrativeTechnique?: string
 ): Promise<{ chapters: PlotChapter[], newCharacters: any[] }> => {
@@ -565,6 +569,8 @@ export const autoPlanBlueprint = async (
         `;
     }
 
+    const archetypeList = CHARACTER_ARCHETYPES.map(a => a.name).join(', ');
+
     const prompt = `
     Role: Professional Novel Editor and Plot Architect.
     
@@ -582,10 +588,18 @@ export const autoPlanBlueprint = async (
     [CONFIGURATION]
     - Target Word Count per Chapter: ${config.wordCountRange[0]} - ${config.wordCountRange[1]}
     - New Characters needed: Approx ${config.newCharCount} (if story requires)
+    - New Organizations/Factions needed: Approx ${config.newOrgCount} (if story requires)
+
+    ${config.customGuidance ? `
+    [USER PLOT DIRECTION GUIDANCE]
+    **HIGH PRIORITY**: The user has provided specific direction for these chapters. You MUST follow this guidance for the plot flow:
+    "${config.customGuidance}"
+    ` : ''}
 
     [EXISTING CHARACTERS]
-    The user has already defined these characters. **PRIORITIZE** using them in 'keyCharacters' where appropriate:
-    ${existingCharacters.map(c => `- ${c.name} (${c.role})`).join('\n')}
+    The user has already defined these characters. **PRIORITIZE** using them in 'keyCharacters' where appropriate.
+    Note: Characters with category='other' represent organizations/factions.
+    ${existingCharacters.map(c => `- ${c.name} (${c.category === 'other' ? 'Faction/Org' : c.role})`).join('\n')}
 
     [STRICT CONSTRAINTS]
     1. **Language**: STRICTLY SIMPLIFIED CHINESE ONLY. No English.
@@ -594,11 +608,17 @@ export const autoPlanBlueprint = async (
     4. **Key Characters**: Mix existing characters with new ones.
     5. **New Characters**: If you introduce new key roles not in the existing list, add them to 'newCharacters' output.
        - IMPORTANT: Assign random genders (Male, Female, or Other) to new characters to ensure variety.
+       - IMPORTANT: If a new character is actually a Sect, Guild, or Organization, set "category" to "other" and "gender" to "organization".
+       
+    [ARCHETYPE RULES]
+    For the "newCharacters" array:
+    - If "category" is 'supporting' or 'villain': The "archetype" field MUST be exactly one of the following Simplified Chinese terms: [${archetypeList}]. Do NOT translate these to English.
+    - If "category" is 'other' (Organization): The "archetype" field MUST be null or an empty string.
 
     Output a JSON object with two fields:
     1. "chapters": Array of PlotChapter objects (size: ${config.chapterCount}).
     2. "newCharacters": Array of objects for NEW characters introduced.
-       Schema for newCharacters: { "name": "string", "role": "string", "gender": "male|female|other", "personality": "string", "appearance": "string", "archetype": "string" }
+       Schema for newCharacters: { "name": "string", "role": "string", "gender": "male|female|other|organization", "personality": "string", "appearance": "string", "archetype": "string|null", "category": "supporting|villain|other" }
     `;
 
     const response = await ai.models.generateContent({
@@ -630,10 +650,11 @@ export const autoPlanBlueprint = async (
                             properties: {
                                 name: { type: Type.STRING },
                                 role: { type: Type.STRING },
-                                gender: { type: Type.STRING, enum: ['male', 'female', 'other'] },
+                                gender: { type: Type.STRING, enum: ['male', 'female', 'other', 'organization'] },
                                 personality: { type: Type.STRING },
                                 appearance: { type: Type.STRING },
-                                archetype: { type: Type.STRING }
+                                archetype: { type: Type.STRING, nullable: true },
+                                category: { type: Type.STRING, enum: ['supporting', 'villain', 'other'] }
                             },
                             required: ["name", "role", "gender"]
                         }
@@ -831,16 +852,22 @@ export const generateCharacterDetails = async (
         instruction = "Generate the 'personality' and 'appearance' from scratch based on the character's role. Be brief and impactful.";
     }
 
+    const isOrg = category === 'other';
+    const fieldMapping = isOrg 
+        ? "For Organizations/Factions: 'personality' = Core Tenets/Motto. 'appearance' = Scale/Base/Visual Style." 
+        : "For Characters: 'personality' = Character Traits. 'appearance' = Visual Description.";
+
     const prompt = `
         You are a creative writer's assistant.
-        Task: Create a **very brief and concise** persona for a character in a "${genre}" story.
+        Task: Create a **very brief and concise** persona/description for a "${category === 'other' ? 'Organization/Faction' : 'Character'}" in a "${genre}" story.
         Name: ${name}, Role: ${role}, Gender: ${gender}, Type: ${category}.
         
         ${instruction}
+        ${fieldMapping}
 
         Rules:
         1.  **Be extremely concise.** Each field should be one or two sentences at most.
-        2.  For 'personality', provide a few key descriptive words.
+        2.  For 'personality', provide a few key descriptive words or a short motto.
         3.  For 'appearance', provide a short, evocative visual description.
         4.  Language: Simplified Chinese.
 
@@ -879,6 +906,9 @@ export const parseStoryOutline = async (outline: string): Promise<any> => {
         2. **FALLBACK**: Only if the outline is a general summary without specific chapter structure should you creatively propose a new "plotBlueprint".
         3. Ensure "keyCharacters" in the blueprint match names in "supportingCharacters" or "character".
         4. **PREREQUISITES**: If the outline mentions that a chapter or event depends on something (e.g. "After finding the sword...", "Must defeat X first"), extract these conditions into the "prerequisites" array for that chapter. If no prerequisites are mentioned, leave the array empty. **DO NOT invent prerequisites.**
+        
+        [ORGANIZATIONS & FACTIONS]
+        If the outline mentions specific Organizations, Sects, Guilds, or Factions as key entities (not individual people), include them in "supportingCharacters" but set their "category" to "other". Set "gender" to "other".
         
         Output JSON Format:
         {

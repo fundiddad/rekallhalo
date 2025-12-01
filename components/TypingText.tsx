@@ -11,6 +11,43 @@ interface TypingTextProps {
   onHoverEntity?: (entity: { type: 'protagonist' | 'npc' | 'location', data: any } | null, rect: DOMRect | null) => void;
 }
 
+// Helper to get color class based on entity info
+const getEntityColorClass = (info: { type: 'protagonist' | 'npc' | 'location', data: any }) => {
+    if (info.type === 'protagonist') {
+        return "text-amber-400 border-amber-400/50 hover:text-amber-300 hover:border-amber-300";
+    } 
+    
+    if (info.type === 'npc') {
+        const npc = info.data as SupportingCharacter;
+        const affinity = npc.affinity || 0;
+        
+        // Villain / High Hostility
+        if (npc.category === 'villain' || affinity <= -20) {
+            return "text-red-400 border-red-400/50 hover:text-red-300 hover:border-red-300 font-medium";
+        }
+        // Hostile / Unfriendly
+        if (affinity < -5) {
+            return "text-orange-400 border-orange-400/50 hover:text-orange-300 hover:border-orange-300";
+        }
+        // Intimate / High Affinity
+        if (affinity >= 40) {
+            return "text-pink-400 border-pink-400/50 hover:text-pink-300 hover:border-pink-300 font-medium";
+        }
+        // Friendly / Ally
+        if (npc.category === 'protagonist' || affinity >= 10) {
+            return "text-cyan-400 border-cyan-400/50 hover:text-cyan-300 hover:border-cyan-300";
+        }
+        // Neutral
+        return "text-indigo-300 border-indigo-400/50 hover:text-indigo-200 hover:border-indigo-300";
+    } 
+    
+    if (info.type === 'location') {
+        return "text-emerald-300 border-emerald-400/50 hover:text-emerald-200 hover:border-emerald-300";
+    }
+    
+    return "text-blue-300 border-blue-300/50";
+};
+
 // Extracted for stability - prevents remounting on parent render
 const EntityTrigger = ({ word, info, onHoverEntity }: { 
     word: string, 
@@ -38,26 +75,12 @@ const EntityTrigger = ({ word, info, onHoverEntity }: {
         }
     };
 
-    // Determine styling class
-    let colorClass = "text-blue-400 border-blue-400/50"; // Location default
-    if (info.type === 'protagonist') {
-        colorClass = "text-amber-400 border-amber-400/50";
-    } else if (info.type === 'npc') {
-        const npc = info.data as SupportingCharacter;
-        const isVillain = npc.category === 'villain' || (npc.affinity || 0) < -10;
-        const isFriend = (npc.affinity || 0) > 10;
-        
-        if (isVillain) colorClass = "text-red-400 border-red-400/50";
-        else if (isFriend) colorClass = "text-pink-400 border-pink-400/50";
-        else colorClass = "text-indigo-300 border-indigo-400/50";
-    } else if (info.type === 'location') {
-        colorClass = "text-cyan-300 border-cyan-400/50";
-    }
+    const colorClass = getEntityColorClass(info);
 
     return (
         <span 
           ref={spanRef}
-          className={`inline-block border-b-2 border-dashed cursor-help transition-all duration-300 hover:text-white hover:border-white ${colorClass}`}
+          className={`inline-block border-b border-dashed cursor-help transition-all duration-300 ${colorClass}`}
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
         >

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { GameState, GameContext, StoryGenre, StoryMood, generateUUID, SupportingCharacter } from '../../types';
 import { SmoothBackground } from '../SmoothBackground';
@@ -140,15 +139,28 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
         if (tempSupportingChar.name && tempSupportingChar.role && tempSupportingChar.gender) {
             setContext(prev => {
                 const newList = [...prev.supportingCharacters];
+                let updatedBlueprint = [...(prev.plotBlueprint || [])];
+
                 if (editingCharId) {
                     const idx = newList.findIndex(c => c.id === editingCharId);
                     if (idx !== -1) {
+                        const oldName = newList[idx].name;
+                        const newName = tempSupportingChar.name;
+
                         newList[idx] = { 
                             ...newList[idx], 
                             ...tempSupportingChar as SupportingCharacter,
                             initialAffinity: tempSupportingChar.initialAffinity || 0,
                             affinity: tempSupportingChar.initialAffinity || 0
                         };
+
+                        // SYNC FIX: If name changed, update all occurrences in Plot Blueprint
+                        if (oldName && newName && oldName !== newName) {
+                            updatedBlueprint = updatedBlueprint.map(chapter => ({
+                                ...chapter,
+                                keyCharacters: (chapter.keyCharacters || []).map(k => k === oldName ? newName : k)
+                            }));
+                        }
                     }
                 } else {
                     const affinityVal = tempSupportingChar.initialAffinity || 0;
@@ -162,7 +174,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
                         archetypeDescription: randomArchetype.description
                     } as SupportingCharacter);
                 }
-                return { ...prev, supportingCharacters: newList };
+                return { ...prev, supportingCharacters: newList, plotBlueprint: updatedBlueprint };
             });
             closeCharModal();
         }
@@ -261,7 +273,28 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
     };
 
     const closeCharModal = () => { setShowCharModal(false); setEditingCharId(null); setTempSupportingChar({ name: '', role: '', gender: '' as any, category: 'supporting', personality: '', appearance: '', archetype: '', archetypeDescription: '', initialAffinity: 0 }); };
-    const handleRemoveSupportingChar = (id: string, e: React.MouseEvent) => { e.stopPropagation(); setContext(prev => ({ ...prev, supportingCharacters: prev.supportingCharacters.filter(c => c.id !== id) })); };
+    
+    const handleRemoveSupportingChar = (id: string, e: React.MouseEvent) => { 
+        e.stopPropagation(); 
+        setContext(prev => {
+            const charToRemove = prev.supportingCharacters.find(c => c.id === id);
+            const charName = charToRemove?.name;
+            
+            // Remove from list
+            const newList = prev.supportingCharacters.filter(c => c.id !== id);
+            
+            // SYNC FIX: Remove from blueprint
+            let updatedBlueprint = prev.plotBlueprint;
+            if (charName) {
+                 updatedBlueprint = (prev.plotBlueprint || []).map(chapter => ({
+                    ...chapter,
+                    keyCharacters: (chapter.keyCharacters || []).filter(k => k !== charName)
+                }));
+            }
+
+            return { ...prev, supportingCharacters: newList, plotBlueprint: updatedBlueprint };
+        }); 
+    };
 
     const openAddSkillModal = () => { setEditingSkillId(null); setTempSkill({ name: '', description: '', level: 1, type: 'active' }); setShowSkillModal(true); };
     const openEditSkillModal = (skill: any) => { setEditingSkillId(skill.id); setTempSkill({ name: skill.name, description: skill.description, level: skill.level || 1, type: skill.type || 'active' }); setShowSkillModal(true); };
@@ -383,6 +416,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
                     onAddChar={openAddCharModal}
                     onEditChar={openEditCharModal}
                     onRemoveChar={handleRemoveSupportingChar}
+                    onReorder={(chars) => setContext(prev => ({ ...prev, supportingCharacters: chars }))}
                 />
 
                 {/* Panel 3: Narrative */}

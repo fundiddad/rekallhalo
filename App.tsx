@@ -36,6 +36,8 @@ const App: React.FC = () => {
       ? (game.context.supportingCharacters.find(c => c.id === game.selectedCharacterId) || game.context.character)
       : game.context.character;
 
+  const isWarning = game.modals.saveExistingNotification;
+
   return (
     <div className="w-full h-full bg-black font-sans text-gray-100 overflow-hidden">
         {game.gameState === GameState.LANDING && (
@@ -148,11 +150,27 @@ const App: React.FC = () => {
             />
         )}
 
-        {/* Notification - Manual Save */}
-        {game.modals.saveNotification && (
-            <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 bg-green-900/80 text-green-100 px-6 py-3 rounded-full backdrop-blur-xl animate-fade-in-up shadow-[0_0_20px_rgba(34,197,94,0.3)] border border-green-500/30 flex items-center gap-3 font-bold tracking-wider">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5 text-green-400"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-                <span>进度已保存</span>
+        {/* Notification - Save Status (Manual & Auto) */}
+        {(game.modals.saveNotification || game.modals.saveExistingNotification || game.autoSaveState === 'complete') && (
+            <div className={`fixed top-6 left-6 z-[100] px-6 py-3 rounded-lg backdrop-blur-xl animate-fade-in-right shadow-lg border flex items-center gap-3 font-bold tracking-wider pointer-events-none ${isWarning ? 'bg-amber-900/90 text-amber-100 border-amber-500/30 shadow-amber-500/20' : 'bg-green-900/90 text-green-100 shadow-green-500/30 border-green-500/30'}`}>
+                {isWarning ? (
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5 text-amber-400">
+                        <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5 text-green-400">
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                )}
+                <div className="flex flex-col">
+                    <span className="text-sm">
+                        {game.modals.saveExistingNotification
+                            ? "当前剧情节点已存在"
+                            : game.modals.saveNotification
+                                ? "进度已手动保存"
+                                : "系统自动存档"}
+                    </span>
+                </div>
             </div>
         )}
 
@@ -229,6 +247,7 @@ const App: React.FC = () => {
                 fontSize={game.historyFontSize}
                 fontFamily={game.storyFontFamily}
                 plotBlueprint={game.context.plotBlueprint}
+                storyName={game.context.storyName}
             />
         )}
 
@@ -244,7 +263,7 @@ const App: React.FC = () => {
         
         {game.modals.avatarGen && (
             <RegenAvatarModal
-                onGenerate={game.handleRegenerateAvatar}
+                onGenerate={() => { game.handleRegenerateAvatar(); game.toggleModal('avatarGen', false); }}
                 onClose={() => game.toggleModal('avatarGen', false)}
                 selectedStyle={game.selectedImageStyle}
                 onSelectStyle={game.setSelectedImageStyle}
@@ -266,7 +285,7 @@ const App: React.FC = () => {
             <ImageGenModal 
                 selectedStyle={game.selectedImageStyle}
                 onSelectStyle={game.setSelectedImageStyle}
-                onGenerate={game.handleGenerateImage}
+                onGenerate={() => { game.handleGenerateImage(); game.toggleModal('image', false); }}
                 onClose={() => game.toggleModal('image', false)}
                 customStyle={game.customImageStyle}
                 onCustomStyleChange={game.setCustomImageStyle}

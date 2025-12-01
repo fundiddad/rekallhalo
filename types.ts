@@ -88,7 +88,7 @@ export interface Character {
 export interface SupportingCharacter {
   id: string;
   name: string;
-  gender: 'male' | 'female' | 'other'; 
+  gender: 'male' | 'female' | 'other' | 'organization'; 
   category: 'protagonist' | 'supporting' | 'villain' | 'other'; // Added category
   role: string; // e.g., "青梅竹马", "师父"
   personality?: string; // New: Personality description

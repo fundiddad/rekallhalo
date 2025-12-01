@@ -1,10 +1,11 @@
 
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { GameContext } from '../../types';
 
 // --- Configuration Modal ---
 interface AutoPlanConfigModalProps {
-    onConfirm: (config: { chapterCount: number; wordCountRange: [number, number]; newCharCount: number }) => void;
+    onConfirm: (config: { chapterCount: number; wordCountRange: [number, number]; newCharCount: number; newOrgCount: number; customGuidance: string }) => void;
     onClose: () => void;
     isContinuing: boolean;
 }
@@ -13,6 +14,8 @@ const AutoPlanConfigModal: React.FC<AutoPlanConfigModalProps> = ({ onConfirm, on
     const [chapterCount, setChapterCount] = useState(3);
     const [targetWordCount, setTargetWordCount] = useState(3000);
     const [newCharCount, setNewCharCount] = useState(3);
+    const [newOrgCount, setNewOrgCount] = useState(1);
+    const [customGuidance, setCustomGuidance] = useState('');
 
     const handleConfirm = () => {
         // Calculate range based on target (approx +/- 20%)
@@ -22,14 +25,19 @@ const AutoPlanConfigModal: React.FC<AutoPlanConfigModalProps> = ({ onConfirm, on
         onConfirm({ 
             chapterCount, 
             wordCountRange: [min, max], 
-            newCharCount 
+            newCharCount,
+            newOrgCount,
+            customGuidance
         });
     };
 
-    return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fade-in-up" onClick={(e) => e.stopPropagation()}>
-            <div className="bg-stone-100 border border-stone-200 p-6 rounded-xl shadow-2xl max-w-sm w-full text-gray-800" onClick={(e) => e.stopPropagation()}>
-                <div className="flex justify-between items-center mb-4">
+    return createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in-up" onClick={(e) => e.stopPropagation()}>
+            <div 
+                className="bg-stone-100 border border-stone-200 p-6 rounded-xl shadow-2xl max-w-sm w-full text-gray-800 flex flex-col max-h-[80vh]" 
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div className="flex justify-between items-center mb-4 shrink-0">
                     <h3 className="font-bold text-gray-800 flex items-center gap-2 text-lg">
                         <span className="text-cyan-600">✦</span> 
                         {isContinuing ? '剧情续写规划' : '智能章纲生成'}
@@ -37,13 +45,27 @@ const AutoPlanConfigModal: React.FC<AutoPlanConfigModalProps> = ({ onConfirm, on
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-800 font-bold">✕</button>
                 </div>
                 
-                <p className="text-xs text-gray-500 mb-6">
+                <p className="text-xs text-gray-500 mb-4 shrink-0">
                     {isContinuing 
-                        ? 'AI 将根据当前已有章节，分析剧情走向并规划后续发展。' 
-                        : 'AI 将根据世界观与主角设定，从零构建故事大纲。'}
+                        ? 'AI 将根据当前已有章节，结合您的指引规划后续发展。' 
+                        : 'AI 将根据世界观与主角设定，结合您的指引构建大纲。'}
                 </p>
 
-                <div className="space-y-5 mb-8">
+                <div className="space-y-5 mb-2 overflow-y-auto pr-1 flex-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
+                    
+                    {/* Custom Guidance - New Field */}
+                    <div>
+                        <div className="flex justify-between text-[10px] text-gray-500 uppercase font-bold mb-2">
+                            <span>剧情脉络指引 (可选)</span>
+                        </div>
+                        <textarea 
+                            value={customGuidance}
+                            onChange={(e) => setCustomGuidance(e.target.value)}
+                            placeholder="在此输入大致的剧情走向、核心冲突或想要发生的特定情节。AI 将以此为核心进行章节拆解..."
+                            className="w-full min-h-[80px] bg-white border border-stone-300 rounded-lg p-3 text-xs text-gray-700 outline-none focus:border-cyan-500 transition-all placeholder-gray-400 resize-y leading-relaxed shadow-inner"
+                        />
+                    </div>
+
                     {/* Chapter Count */}
                     <div>
                         <div className="flex justify-between text-[10px] text-gray-500 uppercase font-bold mb-2">
@@ -80,7 +102,7 @@ const AutoPlanConfigModal: React.FC<AutoPlanConfigModalProps> = ({ onConfirm, on
                     {/* New Character Count */}
                     <div>
                         <div className="flex justify-between text-[10px] text-gray-500 uppercase font-bold mb-2">
-                            <span>涉及/新增角色数</span>
+                            <span>新增角色数</span>
                             <span className="text-cyan-600 font-mono text-sm">约 {newCharCount} 人</span>
                         </div>
                         <input 
@@ -90,18 +112,35 @@ const AutoPlanConfigModal: React.FC<AutoPlanConfigModalProps> = ({ onConfirm, on
                             className="w-full h-1.5 bg-stone-200 rounded-lg appearance-none cursor-pointer accent-cyan-500"
                         />
                     </div>
+
+                    {/* New Organization Count */}
+                    <div>
+                        <div className="flex justify-between text-[10px] text-gray-500 uppercase font-bold mb-2">
+                            <span>新增组织数</span>
+                            <span className="text-cyan-600 font-mono text-sm">约 {newOrgCount} 个</span>
+                        </div>
+                        <input 
+                            type="range" min="0" max="5" step="1" 
+                            value={newOrgCount}
+                            onChange={(e) => setNewOrgCount(parseInt(e.target.value))}
+                            className="w-full h-1.5 bg-stone-200 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                        />
+                    </div>
                 </div>
 
-                <button 
-                    onClick={handleConfirm}
-                    className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-bold font-mono px-8 py-3 clip-path-polygon hover:shadow-lg transition-all active:translate-y-0.5 flex items-center justify-center gap-2"
-                    style={{ clipPath: "polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)" }}
-                >
-                    <span>{isContinuing ? '开始续写' : '开始规划'}</span>
-                </button>
-                <p className="text-[10px] text-center text-gray-400 mt-3">这将消耗一定的 AI 推理算力</p>
+                <div className="shrink-0 pt-4 border-t border-stone-200 mt-auto">
+                    <button 
+                        onClick={handleConfirm}
+                        className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-bold font-mono px-6 py-3 shadow-md hover:shadow-lg transition-all active:translate-y-0.5 flex items-center justify-center gap-2 text-sm clip-path-polygon"
+                        style={{ clipPath: "polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)" }}
+                    >
+                        <span>{isContinuing ? '开始续写' : '开始规划'}</span>
+                    </button>
+                    <p className="text-[10px] text-center text-gray-400 mt-3">这将消耗一定的 AI 推理算力</p>
+                </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };
 

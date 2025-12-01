@@ -16,6 +16,9 @@ interface CharacterEditModalProps {
 export const CharacterEditModal: React.FC<CharacterEditModalProps> = ({
     isEditing, tempChar, setTempChar, onClose, onSave, onAutoGenerate, isGenerating
 }) => {
+    // Determine if the character represents an organization/group
+    const isOrg = tempChar.category === 'other' || tempChar.gender === 'organization';
+
     return (
         <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fade-in-up">
             <div className="bg-stone-100 border border-stone-200 p-6 rounded-xl shadow-2xl max-w-sm w-full relative text-gray-800 max-h-[90vh] overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
@@ -40,12 +43,14 @@ export const CharacterEditModal: React.FC<CharacterEditModalProps> = ({
                                     ${tempChar.gender === 'male' ? 'text-blue-600 font-bold bg-blue-50 border-blue-300' : 
                                       tempChar.gender === 'female' ? 'text-pink-600 font-bold bg-pink-50 border-pink-300' : 
                                       tempChar.gender === 'other' ? 'text-purple-600 font-bold bg-purple-50 border-purple-300' : 
+                                      tempChar.gender === 'organization' ? 'text-slate-600 font-bold bg-slate-50 border-slate-300' :
                                       'text-gray-400 bg-white border-stone-300 hover:bg-stone-50'}`}
                             >
                                 <option value="" disabled>选择性别</option>
                                 <option value="female">♀ 女性</option>
                                 <option value="male">♂ 男性</option>
-                                <option value="other">? 其他</option>
+                                <option value="organization">组织</option>
+                                <option value="other">? 其他/无</option>
                             </select>
                         </div>
                     </div>
@@ -55,13 +60,21 @@ export const CharacterEditModal: React.FC<CharacterEditModalProps> = ({
                         <div className="flex flex-col gap-2">
                             <select 
                                 value={tempChar.category} 
-                                onChange={e => setTempChar(prev => ({ ...prev, category: e.target.value as any }))}
+                                onChange={e => {
+                                    const val = e.target.value as any;
+                                    setTempChar(prev => ({ 
+                                        ...prev, 
+                                        category: val,
+                                        // Auto-sync gender to 'organization' if category is 'other', unless already set
+                                        gender: val === 'other' ? 'organization' : prev.gender 
+                                    }));
+                                }}
                                 className="w-full bg-white border border-stone-300 rounded px-2 py-2 text-sm text-gray-600 outline-none focus:border-blue-500 cursor-pointer hover:bg-stone-50 transition-colors"
                             >
                                 <option value="supporting">配角</option>
                                 <option value="protagonist">主角(友)</option>
                                 <option value="villain">反派</option>
-                                <option value="other">其他</option>
+                                <option value="other">其他 (组织/势力)</option>
                             </select>
                             <input 
                                 placeholder="关系描述 (例: 青梅竹马, 宿敌)" 
@@ -84,7 +97,7 @@ export const CharacterEditModal: React.FC<CharacterEditModalProps> = ({
                             type="range" 
                             min="-50"
                             max="50"
-                            step="5"
+                            step="1"
                             value={tempChar.initialAffinity || 0}
                             onChange={e => setTempChar(prev => ({ ...prev, initialAffinity: parseInt(e.target.value) }))}
                             className="w-full h-2 rounded-lg appearance-none cursor-pointer"
@@ -103,32 +116,36 @@ export const CharacterEditModal: React.FC<CharacterEditModalProps> = ({
                     <div>
                         <label className="text-[10px] text-gray-500 uppercase font-bold mb-1 block">角色原型</label>
                         <div className="w-full bg-indigo-50 border border-indigo-100 rounded px-2 py-1.5 text-xs text-gray-700">
-                            {isEditing ? (
-                                tempChar.archetype ? (
-                                    <details className="group">
-                                        <summary className="list-none flex items-center justify-between cursor-pointer outline-none">
-                                                <div className="font-bold text-indigo-700">{tempChar.archetype}</div>
-                                                <span className="text-[10px] text-indigo-400 transition-transform group-open:rotate-180">▼</span>
-                                        </summary>
-                                        <div className="text-[10px] text-gray-600 mt-1 pt-1 border-t border-indigo-100/50 animate-fade-in-up">
-                                            {tempChar.archetypeDescription}
-                                        </div>
-                                    </details>
-                                ) : (
-                                    <span className="text-gray-400 italic">此角色暂无原型定义</span>
-                                )
+                            {isOrg ? (
+                                <div className="text-gray-400 italic">组织/势力实体无需设定个人原型</div>
                             ) : (
-                                <div className="flex items-center gap-2 text-gray-500 italic text-xs">
-                                    <span>🎲</span>
-                                    <span>角色原型将在创建时随机赋予...</span>
-                                </div>
+                                isEditing ? (
+                                    tempChar.archetype ? (
+                                        <details className="group">
+                                            <summary className="list-none flex items-center justify-between cursor-pointer outline-none">
+                                                    <div className="font-bold text-indigo-700">{tempChar.archetype}</div>
+                                                    <span className="text-[10px] text-indigo-400 transition-transform group-open:rotate-180">▼</span>
+                                            </summary>
+                                            <div className="text-[10px] text-gray-600 mt-1 pt-1 border-t border-indigo-100/50 animate-fade-in-up">
+                                                {tempChar.archetypeDescription}
+                                            </div>
+                                        </details>
+                                    ) : (
+                                        <span className="text-gray-400 italic">此角色暂无原型定义</span>
+                                    )
+                                ) : (
+                                    <div className="flex items-center gap-2 text-gray-500 italic text-xs">
+                                        <span>🎲</span>
+                                        <span>角色原型将在创建时随机赋予...</span>
+                                    </div>
+                                )
                             )}
                         </div>
                     </div>
 
                     <div>
                         <label className="text-[10px] text-gray-500 uppercase font-bold mb-1 flex justify-between items-center">
-                            <span>性格与外貌</span>
+                            <span>{isOrg ? '组织/群体特征' : '性格与外貌'}</span>
                             <button 
                                 onClick={onAutoGenerate}
                                 disabled={isGenerating || !tempChar.name || !tempChar.role || !tempChar.gender}
@@ -147,13 +164,13 @@ export const CharacterEditModal: React.FC<CharacterEditModalProps> = ({
                         </label>
                         <div className="flex flex-col gap-2">
                             <input 
-                                placeholder="性格关键词 (例: 傲娇, 腹黑)" 
+                                placeholder={isOrg ? "组织宗旨/风格 (例: 替天行道, 唯利是图)" : "性格关键词 (例: 傲娇, 腹黑)"} 
                                 value={tempChar.personality} 
                                 onChange={e => setTempChar(prev => ({ ...prev, personality: e.target.value }))} 
                                 className="w-full bg-white border border-stone-300 rounded px-2 py-2 text-sm text-gray-800 outline-none focus:border-blue-500 placeholder-gray-400 transition-colors" 
                             />
                             <textarea 
-                                placeholder="外貌描述 (例: 银发红瞳, 身着机甲)" 
+                                placeholder={isOrg ? "规模与据点描述 (例: 遍布天下, 总舵位于...)" : "外貌描述 (例: 银发红瞳, 身着机甲)"} 
                                 value={tempChar.appearance} 
                                 onChange={e => setTempChar(prev => ({ ...prev, appearance: e.target.value }))} 
                                 className="w-full h-16 bg-white border border-stone-300 rounded px-2 py-2 text-sm text-gray-800 outline-none focus:border-blue-500 placeholder-gray-400 transition-colors resize-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']" 
